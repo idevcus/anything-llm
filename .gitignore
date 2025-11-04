@@ -11,4 +11,10 @@ yarn.lock
 *.bak
 .idea
 
+# Claude 
+.claude
+**/CLAUDE.local.md
+CLAUDE*.md
+.cursorrules
+
 .analysis
