@@ -360,6 +360,7 @@ const TRANSLATIONS = {
         model_type: null,
         default: null,
         reasoning: null,
+        model_type_tooltip: null,
       },
     },
   },
@@ -551,6 +552,8 @@ const TRANSLATIONS = {
       pat_token: null,
       pat_token_explained: null,
       task_explained: null,
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: null,

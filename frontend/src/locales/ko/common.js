@@ -544,6 +544,7 @@ const TRANSLATIONS = {
         model_type: "모델 유형",
         default: "기본값",
         reasoning: "추론",
+        model_type_tooltip: null,
       },
     },
   },
@@ -766,6 +767,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Confluence 계정의 개인 액세스 토큰입니다.",
       task_explained:
         "가져오기가 완료되면 페이지 내용이 문서 선택기에서 워크스페이스에 임베딩할 수 있도록 제공됩니다.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "문서 관리",

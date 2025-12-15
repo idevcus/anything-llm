@@ -27,6 +27,8 @@ const DellProAiStudioProvider = require("./dellProAiStudio.js");
 const MoonshotAiProvider = require("./moonshotAi.js");
 const CometApiProvider = require("./cometapi.js");
 const FoundryProvider = require("./foundry.js");
+const GiteeAIProvider = require("./giteeai.js");
+const CohereProvider = require("./cohere.js");
 
 module.exports = {
   OpenAIProvider,
@@ -58,4 +60,6 @@ module.exports = {
   DellProAiStudioProvider,
   MoonshotAiProvider,
   FoundryProvider,
+  GiteeAIProvider,
+  CohereProvider,
 };

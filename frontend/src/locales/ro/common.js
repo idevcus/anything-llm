@@ -520,6 +520,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Token-ul tău personal de acces Confluence.",
       task_explained:
         "Odată complet, conținutul paginii va fi disponibil pentru embedding în spații de lucru în selectorul de documente.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Documente",
@@ -1009,6 +1011,7 @@ const TRANSLATIONS = {
         model_type: "Tip model",
         default: "Implicit",
         reasoning: "Raționament",
+        model_type_tooltip: null,
       },
     },
   },

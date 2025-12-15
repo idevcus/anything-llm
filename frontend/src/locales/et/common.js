@@ -534,6 +534,7 @@ const TRANSLATIONS = {
         model_type: "Mudeli tüüp",
         default: "Vaikimisi",
         reasoning: "Põhjendus",
+        model_type_tooltip: null,
       },
     },
   },
@@ -750,6 +751,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Sinu isiklik juurdepääsuvõti.",
       task_explained:
         "Kui valmis, on lehe sisu dokumentide valijas tööruumidesse põimimiseks saadaval.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Dokumendid",

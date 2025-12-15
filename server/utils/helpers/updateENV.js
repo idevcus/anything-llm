@@ -307,6 +307,10 @@ const KEY_MAPPING = {
     envKey: "EMBEDDING_MODEL_MAX_CHUNK_LENGTH",
     checks: [nonZero],
   },
+  OllamaEmbeddingBatchSize: {
+    envKey: "OLLAMA_EMBEDDING_BATCH_SIZE",
+    checks: [nonZero],
+  },
 
   // Gemini Embedding Settings
   GeminiEmbeddingApiKey: {
@@ -771,6 +775,20 @@ const KEY_MAPPING = {
     envKey: "ZAI_MODEL_PREF",
     checks: [isNotEmpty],
   },
+
+  // GiteeAI Options
+  GiteeAIApiKey: {
+    envKey: "GITEE_AI_API_KEY",
+    checks: [isNotEmpty],
+  },
+  GiteeAIModelPref: {
+    envKey: "GITEE_AI_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
+  GiteeAITokenLimit: {
+    envKey: "GITEE_AI_MODEL_TOKEN_LIMIT",
+    checks: [nonZero],
+  },
 };
 
 function isNotEmpty(input = "") {
@@ -883,6 +901,7 @@ function supportedLLM(input = "") {
     "cometapi",
     "foundry",
     "zai",
+    "giteeai",
   ].includes(input);
   return validSelection ? null : `${input} is not a valid LLM provider.`;
 }
@@ -920,6 +939,7 @@ function supportedEmbeddingModel(input = "") {
     "litellm",
     "generic-openai",
     "mistral",
+    "openrouter",
   ];
   return supported.includes(input)
     ? null
@@ -1228,6 +1248,9 @@ function dumpENV() {
 
     // Allow setting a custom response timeout for Ollama
     "OLLAMA_RESPONSE_TIMEOUT",
+
+    // Allow disabling of MCP tool cooldown
+    "MCP_NO_COOLDOWN",
   ];
 
   // Simple sanitization of each value to prevent ENV injection via newline or quote escaping.

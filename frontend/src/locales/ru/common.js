@@ -366,6 +366,7 @@ const TRANSLATIONS = {
         model_type: null,
         default: null,
         reasoning: null,
+        model_type_tooltip: null,
       },
     },
   },
@@ -580,6 +581,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Ваш личный токен доступа для Confluence.",
       task_explained:
         "После завершения содержимое страницы будет доступно для внедрения в рабочие пространства через выбор документов.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Документы",

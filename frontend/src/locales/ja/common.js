@@ -363,6 +363,7 @@ const TRANSLATIONS = {
         model_type: null,
         default: null,
         reasoning: null,
+        model_type_tooltip: null,
       },
     },
   },
@@ -571,6 +572,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Confluenceのパーソナルアクセストークンです。",
       task_explained:
         "完了後、ページ内容がドキュメントピッカーからワークスペースに埋め込めるようになります。",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "ドキュメント",

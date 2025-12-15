@@ -365,6 +365,7 @@ const TRANSLATIONS = {
         model_type: null,
         default: null,
         reasoning: null,
+        model_type_tooltip: null,
       },
     },
   },
@@ -579,6 +580,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Din personlige Confluence-adgangstoken.",
       task_explained:
         "Når færdig, vil sideindholdet være tilgængeligt for indlejring i arbejdsområder i dokumentvælgeren.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Dokumenter",

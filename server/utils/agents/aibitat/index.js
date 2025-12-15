@@ -988,6 +988,10 @@ ${this.getHistory({ to: route.to })
         return new Providers.CometApiProvider({ model: config.model });
       case "foundry":
         return new Providers.FoundryProvider({ model: config.model });
+      case "giteeai":
+        return new Providers.GiteeAIProvider({ model: config.model });
+      case "cohere":
+        return new Providers.CohereProvider({ model: config.model });
       default:
         throw new Error(
           `Unknown provider: ${config.provider}. Please use a valid provider.`

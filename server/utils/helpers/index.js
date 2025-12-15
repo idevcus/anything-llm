@@ -82,7 +82,6 @@
  * @returns { BaseVectorDatabaseProvider}
  */
 function getVectorDbClass(getExactly = null) {
-  const { LanceDb } = require("../vectorDbProviders/lance");
   const vectorSelection = getExactly ?? process.env.VECTOR_DB ?? "lancedb";
   switch (vectorSelection) {
     case "pinecone":
@@ -95,6 +94,7 @@ function getVectorDbClass(getExactly = null) {
       const { ChromaCloud } = require("../vectorDbProviders/chromacloud");
       return ChromaCloud;
     case "lancedb":
+      const { LanceDb } = require("../vectorDbProviders/lance");
       return LanceDb;
     case "weaviate":
       const { Weaviate } = require("../vectorDbProviders/weaviate");
@@ -118,7 +118,8 @@ function getVectorDbClass(getExactly = null) {
       console.error(
         `\x1b[31m[ENV ERROR]\x1b[0m No VECTOR_DB value found in environment! Falling back to LanceDB`
       );
-      return LanceDb;
+      const { LanceDb: DefaultLanceDb } = require("../vectorDbProviders/lance");
+      return DefaultLanceDb;
   }
 }
 
@@ -225,6 +226,9 @@ function getLLMProvider({ provider = null, model = null } = {}) {
     case "zai":
       const { ZAiLLM } = require("../AiProviders/zai");
       return new ZAiLLM(embedder, model);
+    case "giteeai":
+      const { GiteeAILLM } = require("../AiProviders/giteeai");
+      return new GiteeAILLM(embedder, model);
     default:
       throw new Error(
         `ENV: No valid LLM_PROVIDER value found in environment! Using ${process.env.LLM_PROVIDER}`
@@ -279,6 +283,9 @@ function getEmbeddingEngineSelection() {
     case "gemini":
       const { GeminiEmbedder } = require("../EmbeddingEngines/gemini");
       return new GeminiEmbedder();
+    case "openrouter":
+      const { OpenRouterEmbedder } = require("../EmbeddingEngines/openRouter");
+      return new OpenRouterEmbedder();
     default:
       return new NativeEmbedder();
   }
@@ -384,6 +391,9 @@ function getLLMProviderClass({ provider = null } = {}) {
     case "zai":
       const { ZAiLLM } = require("../AiProviders/zai");
       return ZAiLLM;
+    case "giteeai":
+      const { GiteeAILLM } = require("../AiProviders/giteeai");
+      return GiteeAILLM;
     default:
       return null;
   }
@@ -458,6 +468,8 @@ function getBaseLLMProviderModel({ provider = null } = {}) {
       return process.env.FOUNDRY_MODEL_PREF;
     case "zai":
       return process.env.ZAI_MODEL_PREF;
+    case "giteeai":
+      return process.env.GITEE_AI_MODEL_PREF;
     default:
       return null;
   }

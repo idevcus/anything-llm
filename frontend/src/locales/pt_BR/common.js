@@ -542,6 +542,7 @@ const TRANSLATIONS = {
         model_type: "Tipo do Modelo",
         default: "Padrão",
         reasoning: "Raciocínio",
+        model_type_tooltip: null,
       },
     },
   },
@@ -764,6 +765,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Seu token pessoal de acesso.",
       task_explained:
         "Após conclusão, o conteúdo da página estará disponível para vínculo.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Documentos",

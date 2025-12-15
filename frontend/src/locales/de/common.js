@@ -557,6 +557,7 @@ const TRANSLATIONS = {
         model_type: "Art des Modells",
         default: "Standard",
         reasoning: "Reasoning",
+        model_type_tooltip: null,
       },
     },
   },
@@ -788,6 +789,8 @@ const TRANSLATIONS = {
       pat_token_explained: "Ihr Confluence persönliches Zugriffstoken.",
       task_explained:
         "Sobald der Vorgang abgeschlossen ist, ist der Seiteninhalt im Dokumenten-Picker zur Einbettung in Workspaces verfügbar.",
+      bypass_ssl: null,
+      bypass_ssl_explained: null,
     },
     manage: {
       documents: "Dokumente",

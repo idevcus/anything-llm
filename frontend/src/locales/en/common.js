@@ -58,7 +58,7 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    "workspaces-name": "Workspaces Name",
+    "workspaces-name": "Workspace Name",
     error: "error",
     success: "success",
     user: "User",
@@ -583,6 +583,8 @@ const TRANSLATIONS = {
         chat_deployment_name: "Chat Deployment Name",
         chat_model_token_limit: "Chat Model Token Limit",
         model_type: "Model Type",
+        model_type_tooltip:
+          "If your deployment uses a reasoning model (o1, o1-mini, o3-mini, etc.), set this to “Reasoning”. Otherwise, your chat requests may fail.",
         default: "Default",
         reasoning: "Reasoning",
       },
@@ -605,7 +607,7 @@ const TRANSLATIONS = {
   embedding: {
     title: "Embedding Preference",
     "desc-start":
-      "When using an LLM that does not natively support an embedding engine - you may need to additionally specify credentials to for embedding text.",
+      "When using an LLM that does not natively support an embedding engine - you may need to additionally specify credentials for embedding text.",
     "desc-end":
       "Embedding is the process of turning text into vectors. These credentials are required to turn your files and prompts into a format which AnythingLLM can use to process.",
     provider: {
@@ -849,6 +851,9 @@ const TRANSLATIONS = {
       token_desc: "Access token for authentication",
       pat_token: "Confluence Personal Access Token",
       pat_token_explained: "Your Confluence personal access token.",
+      bypass_ssl: "Bypass SSL Certificate Validation",
+      bypass_ssl_explained:
+        "Enable this option to bypass SSL certificate validation for self-hosted confluence instances with self-signed certificate",
       task_explained:
         "Once complete, the page content will be available for embedding into workspaces in the document picker.",
     },
