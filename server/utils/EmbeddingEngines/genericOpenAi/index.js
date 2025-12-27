@@ -1,4 +1,4 @@
-const { toChunks, maximumChunkLength } = require("../../helpers");
+const { maximumChunkLength } = require("../../helpers");
 
 class GenericOpenAiEmbedder {
   constructor() {
@@ -81,11 +81,71 @@ class GenericOpenAiEmbedder {
   }
 
   async embedChunks(textChunks = []) {
-    // Because there is a hard POST limit on how many chunks can be sent at once to OpenAI (~8mb)
-    // we sequentially execute each max batch of text chunks possible.
-    // Refer to constructor maxConcurrentChunks for more info.
+    // Because there is a hard POST limit on how many chunks can be sent at once to OpenAI
+    // Both in terms of request size (~8mb) AND token count (300k tokens per request)
+    // we batch chunks intelligently based on estimated token count.
+    // OpenAI limit: 300k tokens per request. We use a conservative estimate for safety.
+    const MAX_TOKENS_PER_REQUEST = 150_000;
+
+    // Estimate tokens per chunk (conservative estimate for non-English text: 1 token ≈ 2 characters)
+    // This accounts for Korean text, special characters, and metadata overhead
+    const estimateTokens = (text) => Math.ceil(text.length / 2);
+
+    // Create batches based on token count
+    const batches = [];
+    let currentBatch = [];
+    let currentTokenCount = 0;
+
+    for (const chunk of textChunks) {
+      const chunkTokens = estimateTokens(chunk);
+
+      // If a single chunk exceeds the limit, we still need to try it
+      // OpenAI will return a proper error for this edge case
+      if (chunkTokens > MAX_TOKENS_PER_REQUEST) {
+        // If current batch has content, save it first
+        if (currentBatch.length > 0) {
+          batches.push(currentBatch);
+          currentBatch = [];
+          currentTokenCount = 0;
+        }
+        // Put the oversized chunk in its own batch
+        batches.push([chunk]);
+        continue;
+      }
+
+      // If adding this chunk would exceed the limit, start a new batch
+      if (
+        currentTokenCount + chunkTokens > MAX_TOKENS_PER_REQUEST &&
+        currentBatch.length > 0
+      ) {
+        batches.push(currentBatch);
+        currentBatch = [chunk];
+        currentTokenCount = chunkTokens;
+      } else {
+        currentBatch.push(chunk);
+        currentTokenCount += chunkTokens;
+      }
+
+      // Also respect the maxConcurrentChunks limit as a safety measure
+      if (currentBatch.length >= this.maxConcurrentChunks) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentTokenCount = 0;
+      }
+    }
+
+    // Add remaining chunks
+    if (currentBatch.length > 0) {
+      batches.push(currentBatch);
+    }
+
+    this.log(
+      `Created ${batches.length} batches from ${textChunks.length} chunks`
+    );
+
+    // Process batches sequentially
     const allResults = [];
-    for (const chunk of toChunks(textChunks, this.maxConcurrentChunks)) {
+    for (const chunk of batches) {
       const { data = [], error = null } = await new Promise((resolve) => {
         this.openai.embeddings
           .create({
