@@ -5,6 +5,25 @@ networks:
     driver: bridge
 
 services:
+  postgres:
+    container_name: anythingllm-postgres
+    image: pgvector/pgvector:pg14
+    environment:
+      POSTGRES_DB: anythingllm
+      POSTGRES_USER: anythingllm
+      POSTGRES_PASSWORD: anythingllm
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - anything-llm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anythingllm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   anything-llm:
     container_name: anythingllm
     build:
@@ -29,3 +48,9 @@ services:
       - anything-llm
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
