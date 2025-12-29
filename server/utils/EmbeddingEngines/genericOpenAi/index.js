@@ -29,6 +29,13 @@ class GenericOpenAiEmbedder {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
+  }
+
   /**
    * returns the `GENERIC_OPEN_AI_EMBEDDING_API_DELAY_MS` env variable as a number or null if the env variable is not set or is not a number.
    * The minimum delay is 500ms.
@@ -81,6 +88,9 @@ class GenericOpenAiEmbedder {
   }
 
   async embedChunks(textChunks = []) {
+    const totalStartTime = Date.now();
+    this.log(`Embedding ${textChunks.length} chunks...`);
+
     // Because there is a hard POST limit on how many chunks can be sent at once to OpenAI
     // Both in terms of request size (~8mb) AND token count (300k tokens per request)
     // we batch chunks intelligently based on estimated token count.
@@ -145,20 +155,37 @@ class GenericOpenAiEmbedder {
 
     // Process batches sequentially
     const allResults = [];
-    for (const chunk of batches) {
+    for (const [batchIndex, chunk] of batches.entries()) {
+      const startTime = Date.now();
+      const estimatedTokens = chunk.reduce((sum, text) => sum + Math.ceil(text.length / 2), 0);
+
+      this.logDebug(`[Batch ${batchIndex + 1}/${batches.length}] Calling GenericOpenAI API - ${chunk.length} chunks, ~${estimatedTokens} tokens`);
+
       const { data = [], error = null } = await new Promise((resolve) => {
         this.openai.embeddings
           .create({
             model: this.model,
             input: chunk,
           })
-          .then((result) => resolve({ data: result?.data, error: null }))
+          .then((result) => {
+            const duration = Date.now() - startTime;
+            const actualTokens = result?.usage?.total_tokens || 0;
+            this.logDebug(
+              `[Batch ${batchIndex + 1}/${batches.length}] ✓ Success - ${result?.data?.length || 0} embeddings, ` +
+              `${actualTokens} tokens used, ${duration}ms`
+            );
+            resolve({ data: result?.data, error: null });
+          })
           .catch((e) => {
+            const duration = Date.now() - startTime;
             e.type =
               e?.response?.data?.error?.code ||
               e?.response?.status ||
               "failed_to_embed";
             e.message = e?.response?.data?.error?.message || e.message;
+            this.logDebug(
+              `[Batch ${batchIndex + 1}/${batches.length}] ✗ Failed - ${e.type}: ${e.message}, ${duration}ms`
+            );
             resolve({ data: [], error: e });
           });
       });
@@ -171,10 +198,20 @@ class GenericOpenAiEmbedder {
       if (this.apiRequestDelay) await this.runDelay();
     }
 
-    return allResults.length > 0 &&
+    const totalDuration = Date.now() - totalStartTime;
+    const embeddings = allResults.length > 0 &&
       allResults.every((embd) => embd.hasOwnProperty("embedding"))
       ? allResults.map((embd) => embd.embedding)
       : null;
+
+    if (embeddings) {
+      this.logDebug(
+        `✓ Completed all embeddings - ${embeddings.length} vectors generated in ${(totalDuration / 1000).toFixed(2)}s ` +
+        `(avg: ${(totalDuration / batches.length).toFixed(0)}ms per batch)`
+      );
+    }
+
+    return embeddings;
   }
 }
 

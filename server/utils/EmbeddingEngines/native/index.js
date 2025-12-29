@@ -54,6 +54,13 @@ class NativeEmbedder {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
+  }
+
   /**
    * Get the selected model from the environment variable.
    * @returns {string}
@@ -241,12 +248,21 @@ class NativeEmbedder {
   // While this does take a while, it is zero set up and is 100% free and on-instance.
   // It still may crash depending on other elements at play - so no promises it works under all conditions.
   async embedChunks(textChunks = []) {
+    const totalStartTime = Date.now();
+    this.log(`Embedding ${textChunks.length} chunks...`);
+
     const tmpFilePath = this.#tempfilePath();
     const chunks = toChunks(textChunks, this.maxConcurrentChunks);
     const chunkLen = chunks.length;
 
     for (let [idx, chunk] of chunks.entries()) {
       if (idx === 0) await this.#writeToTempfile(tmpFilePath, "[");
+
+      const startTime = Date.now();
+      const estimatedTokens = chunk.reduce((sum, text) => sum + Math.ceil(text.length / 2), 0);
+
+      this.logDebug(`[Batch ${idx + 1}/${chunkLen}] Processing native embedding - ${chunk.length} chunks, ~${estimatedTokens} tokens`);
+
       let data;
       let pipeline = await this.embedderClient();
       let output = await pipeline(chunk, {
@@ -255,6 +271,7 @@ class NativeEmbedder {
       });
 
       if (output.length === 0) {
+        this.logDebug(`[Batch ${idx + 1}/${chunkLen}] ✗ Failed - empty output`);
         pipeline = null;
         output = null;
         data = null;
@@ -263,7 +280,11 @@ class NativeEmbedder {
 
       data = JSON.stringify(output.tolist());
       await this.#writeToTempfile(tmpFilePath, data);
+
+      const duration = Date.now() - startTime;
       this.log(`Embedded Chunk Group ${idx + 1} of ${chunkLen}`);
+      this.logDebug(`[Batch ${idx + 1}/${chunkLen}] ✓ Success - ${output.tolist().length} embeddings, ${duration}ms`);
+
       if (chunkLen - 1 !== idx) await this.#writeToTempfile(tmpFilePath, ",");
       if (chunkLen - 1 === idx) await this.#writeToTempfile(tmpFilePath, "]");
       pipeline = null;
@@ -275,7 +296,18 @@ class NativeEmbedder {
       fs.readFileSync(tmpFilePath, { encoding: "utf-8" })
     );
     fs.rmSync(tmpFilePath, { force: true });
-    return embeddingResults.length > 0 ? embeddingResults.flat() : null;
+
+    const totalDuration = Date.now() - totalStartTime;
+    const flatResults = embeddingResults.length > 0 ? embeddingResults.flat() : null;
+
+    if (flatResults) {
+      this.logDebug(
+        `✓ Completed all embeddings - ${flatResults.length} vectors generated in ${(totalDuration / 1000).toFixed(2)}s ` +
+        `(avg: ${(totalDuration / chunkLen).toFixed(0)}ms per batch)`
+      );
+    }
+
+    return flatResults;
   }
 }
 
