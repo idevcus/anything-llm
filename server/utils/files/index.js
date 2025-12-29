@@ -197,7 +197,75 @@ async function storeVectorResult(vectorData = [], filename = null) {
 
   const digest = uuidv5(filename, uuidv5.URL);
   const writeTo = path.resolve(vectorCachePath, `${digest}.json`);
-  fs.writeFileSync(writeTo, JSON.stringify(vectorData), "utf8");
+
+  // For large datasets, write to file using streaming to avoid "Invalid string length" errors
+  // when JSON.stringify creates a string that exceeds JavaScript's string length limit
+  try {
+    // Try the simple approach first
+    try {
+      fs.writeFileSync(writeTo, JSON.stringify(vectorData), "utf8");
+      return;
+    } catch (stringifyError) {
+      // If JSON.stringify fails due to string length limits, fall back to streaming
+      if (
+        stringifyError.message.includes("Invalid string length") ||
+        stringifyError.message.includes("string length")
+      ) {
+        console.log(
+          `Large dataset detected. JSON.stringify failed, falling back to streaming write...`
+        );
+      } else {
+        throw stringifyError; // Re-throw if it's a different error
+      }
+    }
+
+    // Delete existing file if it exists
+    if (fs.existsSync(writeTo)) fs.unlinkSync(writeTo);
+
+    // Flatten nested arrays if needed (e.g., when vectorData is an array of arrays)
+    // This ensures we write individual vector objects, not large nested arrays
+    const flattenedData = Array.isArray(vectorData[0])
+      ? vectorData.flat()
+      : vectorData;
+
+    console.log(
+      `Writing ${flattenedData.length} vectors to cache file using streaming...`
+    );
+
+    // Write opening bracket
+    fs.appendFileSync(writeTo, "[", "utf8");
+
+    // Write each vector object separately to avoid string length limits
+    for (let i = 0; i < flattenedData.length; i++) {
+      const vector = flattenedData[i];
+
+      try {
+        const vectorJson = JSON.stringify(vector);
+        fs.appendFileSync(writeTo, vectorJson, "utf8");
+
+        // Add comma if not the last item
+        if (i < flattenedData.length - 1) {
+          fs.appendFileSync(writeTo, ",", "utf8");
+        }
+      } catch (itemError) {
+        console.error(
+          `Error serializing vector at index ${i}: ${itemError.message}`
+        );
+        throw itemError;
+      }
+    }
+
+    // Write closing bracket
+    fs.appendFileSync(writeTo, "]", "utf8");
+
+    console.log(`Successfully cached ${flattenedData.length} vectors using streaming write.`);
+  } catch (error) {
+    console.error(`Error writing vector cache file: ${error.message}`);
+    // If write fails, remove partial file
+    if (fs.existsSync(writeTo)) fs.unlinkSync(writeTo);
+    throw error;
+  }
+
   return;
 }
 
