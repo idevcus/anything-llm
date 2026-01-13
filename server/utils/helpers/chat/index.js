@@ -47,11 +47,20 @@ There is a supplemental version of this function that also returns a formatted s
 */
 
 async function messageArrayCompressor(llm, messages = [], rawHistory = []) {
+  // 전체 압축이 비활성화된 경우 원본 메시지 반환
+  if (process.env.DISABLE_MESSAGE_COMPRESSION === "true") {
+    return messages;
+  }
+
   // assume the response will be at least 600 tokens. If the total prompt + reply is over we need to proactively
   // run the compressor to ensure the prompt has enough space to reply.
   // realistically - most users will not be impacted by this.
   const tokenBuffer = 600;
   const tokenManager = new TokenManager(llm.model);
+
+  // 히스토리만 압축하는 옵션이 활성화된 경우
+  const compressOnlyHistory = process.env.COMPRESS_ONLY_HISTORY === "true";
+
   // If no work needs to be done, just pass through.
   if (tokenManager.statsFrom(messages) + tokenBuffer < llm.promptWindowLimit())
     return messages;
@@ -59,6 +68,88 @@ async function messageArrayCompressor(llm, messages = [], rawHistory = []) {
   const system = messages.shift();
   const user = messages.pop();
   const userPromptSize = tokenManager.countFromString(user.content);
+
+  // 히스토리만 압축하는 모드인 경우
+  if (compressOnlyHistory) {
+    // 시스템 프롬프트와 사용자 프롬프트의 토큰 수 확인
+    const systemAndUserTokens = tokenManager.statsFrom([system, user]);
+
+    // 안전장치: 시스템 + 사용자 프롬프트가 너무 크면 에러
+    if (systemAndUserTokens > llm.promptWindowLimit() * 0.9) {
+      console.warn(
+        `[COMPRESS_ONLY_HISTORY] Warning: System + User prompt (${systemAndUserTokens} tokens) ` +
+        `exceeds 90% of model window (${llm.promptWindowLimit()} tokens). ` +
+        `History compression may not be sufficient.`
+      );
+    }
+
+    // 히스토리만 압축 처리
+    const compressedHistory = await new Promise((resolve) => {
+      const eligibleHistoryItems = [];
+      var historyTokenCount = 0;
+
+      for (const [i, history] of rawHistory.reverse().entries()) {
+        const [user, assistant] = convertToPromptHistory([history]);
+        const [userTokens, assistantTokens] = [
+          tokenManager.countFromString(user.content),
+          tokenManager.countFromString(assistant.content),
+        ];
+        const total = userTokens + assistantTokens;
+
+        // If during the loop the token cost of adding this history
+        // is small, we can add it to history and move onto next.
+        if (historyTokenCount + total < llm.limits.history) {
+          eligibleHistoryItems.unshift(user, assistant);
+          historyTokenCount += total;
+          continue;
+        }
+
+        // If we reach here the overhead of adding this history item will
+        // be too much of the limit. So now, we are prioritizing
+        // the most recent 3 message pairs - if we are already past those - exit loop and stop
+        // trying to make history work.
+        if (i > 2) break;
+
+        // We are over the limit and we are within the first 3 most recent chats.
+        // so now we cannonball them to make them fit into the window.
+        // max size = llm.limit.history; Each component of the message, can at most
+        // be 50% of the history. We cannonball whichever is the problem.
+        // The math isnt perfect for tokens, so we have to add a fudge factor for safety.
+        const maxTargetSize = Math.floor(llm.limits.history / 2.2);
+        if (userTokens > maxTargetSize) {
+          user.content = cannonball({
+            input: user.content,
+            targetTokenSize: maxTargetSize,
+            tiktokenInstance: tokenManager,
+          });
+        }
+
+        if (assistantTokens > maxTargetSize) {
+          assistant.content = cannonball({
+            input: assistant.content,
+            targetTokenSize: maxTargetSize,
+            tiktokenInstance: tokenManager,
+          });
+        }
+
+        const newTotal = tokenManager.statsFrom([user, assistant]);
+        if (historyTokenCount + newTotal > llm.limits.history) continue;
+        eligibleHistoryItems.unshift(user, assistant);
+        historyTokenCount += newTotal;
+      }
+      resolve(eligibleHistoryItems);
+    });
+
+    console.log(
+      `[COMPRESS_ONLY_HISTORY] Compressed history only. ` +
+      `System: ${tokenManager.countFromString(system.content)} tokens, ` +
+      `History: ${tokenManager.statsFrom(compressedHistory)} tokens, ` +
+      `User: ${userPromptSize} tokens`
+    );
+
+    // 시스템, 압축된 히스토리, 사용자 프롬프트 순서로 반환
+    return [system, ...compressedHistory, user];
+  }
 
   // User prompt is the main focus here - we we prioritize it and allow
   // it to highjack the entire conversation thread. We are going to
