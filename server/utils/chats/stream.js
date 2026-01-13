@@ -228,9 +228,10 @@ async function streamChatWithWorkspace(
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+  const systemPrompt = await chatPrompt(workspace, user);
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(workspace, user),
+      systemPrompt,
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
@@ -238,6 +239,15 @@ async function streamChatWithWorkspace(
     },
     rawHistory
   );
+
+  // Collect LLM log data for later storage
+  const llmLogData = {
+    systemPrompt,
+    userPrompt: updatedMessage,
+    contextTexts,
+    chatHistory: rawHistory,
+    compressedMessages: messages,
+  };
 
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
@@ -288,6 +298,17 @@ async function streamChatWithWorkspace(
       threadId: thread?.id || null,
       user,
     });
+
+    // Save LLM message log
+    try {
+      await WorkspaceChats.createLlmMessageLog(chat.id, {
+        ...llmLogData,
+        llmResponse: completeText,
+      });
+    } catch (error) {
+      console.error("[LLM Log] Failed to save log:", error.message);
+      // Continue normally even if log saving fails
+    }
 
     writeResponseChunk(response, {
       uuid,

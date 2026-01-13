@@ -181,18 +181,19 @@ model workspace_suggested_messages {
 }
 
 model workspace_chats {
-  id             Int      @id @default(autoincrement())
+  id             Int                        @id @default(autoincrement())
   workspaceId    Int
   prompt         String
   response       String
-  include        Boolean  @default(true)
+  include        Boolean                    @default(true)
   user_id        Int?
   thread_id      Int? // No relation to prevent whole table migration
   api_session_id String? // String identifier for only the dev API to partition chats in any mode.
-  createdAt      DateTime @default(now())
-  lastUpdatedAt  DateTime @default(now())
+  createdAt      DateTime                   @default(now())
+  lastUpdatedAt  DateTime                   @default(now())
   feedbackScore  Boolean?
-  users          users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  llm_message_log workspace_llm_message_logs?
+  users          users?                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
 
 model workspace_agent_invocations {
@@ -389,4 +390,25 @@ model workspace_parsed_files {
 
   @@index([workspaceId])
   @@index([userId])
+}
+
+model workspace_llm_message_logs {
+  id                   Int              @id @default(autoincrement())
+  chat_id              Int              @unique
+  workspace_chat       workspace_chats  @relation(fields: [chat_id], references: [id], onDelete: Cascade)
+
+  // Core data (individual columns)
+  system_prompt        String?          @db.Text
+  user_prompt          String?          @db.Text
+  llm_response         String?          @db.Text
+
+  // Detailed data (JSON)
+  rag_context          String?          @db.Text  // JSON array: contextTexts
+  chat_history         String?          @db.Text  // JSON array: rawHistory
+  compressed_messages  String?          @db.Text  // JSON array: final messages sent to LLM
+
+  createdAt            DateTime         @default(now())
+  lastUpdatedAt        DateTime         @default(now())
+
+  @@index([chat_id])
 }
