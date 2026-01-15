@@ -36,8 +36,16 @@ afterAll(async () => {
 // Setup and teardown for each test
 beforeEach(async () => {
   // Clean up database before each test
-  await mockPrisma.workspace_llm_message_logs.deleteMany({});
-  await mockPrisma.workspace_chats.deleteMany({});
-  await mockPrisma.workspaces.deleteMany({});
-  await mockPrisma.users.deleteMany({});
+  // Wrapped in try-catch to handle DB initialization errors in unit tests
+  try {
+    await mockPrisma.workspace_llm_message_logs.deleteMany({});
+    await mockPrisma.workspace_chats.deleteMany({});
+    await mockPrisma.workspaces.deleteMany({});
+    await mockPrisma.users.deleteMany({});
+  } catch (error) {
+    // Skip DB cleanup for unit tests that don't need real DB
+    if (!error.message.includes('Error validating datasource')) {
+      throw error;
+    }
+  }
 });

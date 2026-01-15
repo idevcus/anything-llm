@@ -413,6 +413,7 @@ const TRANSLATIONS = {
       by: "보낸 사람",
       workspace: "워크스페이스",
       prompt: "프롬프트",
+      llmMessages: "LLM에 보낸메시지",
       response: "응답",
       at: "보낸 시각",
     },

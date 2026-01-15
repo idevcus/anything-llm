@@ -256,6 +256,11 @@ const WorkspaceChats = {
         res.user = user
           ? { username: user.username }
           : { username: res.api_session_id !== null ? "API" : "unknown user" };
+
+        const llmMessageLog = await WorkspaceLlmMessageLogs.getByChatId(res.id);
+        res.llmMessageLog = llmMessageLog
+          ? { compressedMessages: llmMessageLog.compressed_messages }
+          : null;
       }
 
       return results;

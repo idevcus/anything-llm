@@ -447,6 +447,7 @@ const TRANSLATIONS = {
       by: "Sent By",
       workspace: "Workspace",
       prompt: "Prompt",
+      llmMessages: "Messages Sent to LLM",
       response: "Response",
       at: "Sent At",
     },
