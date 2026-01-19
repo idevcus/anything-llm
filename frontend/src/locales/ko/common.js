@@ -345,6 +345,12 @@ const TRANSLATIONS = {
       error: "워크스페이스 벡터 데이터베이스를 재설정할 수 없습니다!",
       success: "워크스페이스 벡터 데이터베이스가 재설정되었습니다!",
     },
+    adjacentChunks: {
+      title: "인접 청크",
+      description:
+        "청크가 검색될 때 포함할 이웃 청크(앞뒤)의 수입니다. 관련 검색 결과 주변에 더 많은 컨텍스트를 제공하는 데 도움이 됩니다.",
+      recommend: "추천: 0 (비활성화). 이 기능을 활성화하려면 문서를 다시 임베딩하세요.",
+    },
   },
   agent: {
     "performance-warning":

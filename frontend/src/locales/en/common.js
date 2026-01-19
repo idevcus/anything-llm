@@ -374,6 +374,12 @@ const TRANSLATIONS = {
       error: "Workspace vector database could not be reset!",
       success: "Workspace vector database was reset!",
     },
+    adjacentChunks: {
+      title: "Adjacent Chunks",
+      description:
+        "Number of neighboring chunks (before and after) to include when a chunk is retrieved. This helps provide more context around relevant search results.",
+      recommend: "Recommended: 0 (disabled). Re-embed documents to enable this feature.",
+    },
   },
 
   // Agent Configuration

@@ -1,6 +1,26 @@
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
+// Set environment variables for tests
+process.env.NODE_ENV = 'development';
+process.env.STORAGE_DIR = path.join(__dirname, 'storage');
+
+// Mock console.error to avoid cluttering test output from expected error logs
+const originalError = console.error;
+beforeEach(() => {
+  console.error = jest.fn().mockImplementation(() => {});
+});
+afterEach(() => {
+  console.error = originalError;
+});
+
+// Mock the utils/files module to avoid path resolution issues
+jest.mock('./utils/files', () => ({
+  // Export necessary functions or empty mocks
+  storeVectorResult: jest.fn(),
+  cachedVectorInformation: jest.fn(),
+}));
+
 // Create a test-specific Prisma client that uses SQLite
 const dbPath = path.join(__dirname, 'storage', 'test.db');
 const mockPrisma = new PrismaClient({

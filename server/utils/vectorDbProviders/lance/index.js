@@ -194,6 +194,64 @@ const LanceDb = {
     return result;
   },
   /**
+   * Get adjacent chunks for a given document and chunk index.
+   * LanceDB supports SQL-like filtering for efficient queries.
+   * @param {Object} params
+   * @param {LanceClient} params.client
+   * @param {string} params.namespace
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    client,
+    namespace,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      const table = await client.openTable(namespace);
+
+      // LanceDB SQL-like filter expression
+      // docId = 'xxx' AND chunkIndex >= 0 AND chunkIndex <= 5 AND chunkIndex != 2
+      const filterExpression = `docId = '${docId}' AND chunkIndex >= ${minIndex} AND chunkIndex <= ${maxIndex} AND chunkIndex != ${chunkIndex}`;
+
+      const response = await table.filter(filterExpression).execute();
+
+      for (const item of response) {
+        const chunkId = item.docId + "-" + item.chunkIndex;
+        // 이미 포함된 청크는 스킵
+        if (excludeIds.includes(chunkId)) continue;
+
+        result.contextTexts.push(item.text);
+        result.sourceDocuments.push({
+          ...item,
+          isAdjacentChunk: true,
+        });
+      }
+    } catch (err) {
+      console.error("LanceDB: Error fetching adjacent chunks:", err.message);
+    }
+
+    return result;
+  },
+
+  /**
    *
    * @param {LanceClient} client
    * @param {string} namespace
@@ -336,6 +394,7 @@ const LanceDb = {
       const vectorValues = await EmbedderEngine.embedChunks(textChunks);
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           const vectorRecord = {
             id: uuidv4(),
@@ -343,7 +402,12 @@ const LanceDb = {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           vectors.push(vectorRecord);
@@ -385,6 +449,7 @@ const LanceDb = {
     topN = 4,
     filterIdentifiers = [],
     rerank = false,
+    adjacentChunks = 0,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -399,7 +464,7 @@ const LanceDb = {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const result = rerank
+    let result = rerank
       ? await this.rerankedSimilarityResponse({
           client,
           namespace,
@@ -418,7 +483,50 @@ const LanceDb = {
           filterIdentifiers,
         });
 
-    const { contextTexts, sourceDocuments } = result;
+    let { contextTexts, sourceDocuments } = result;
+
+    // 인접 청크 조회가 활성화된 경우
+    if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+      // 이미 포함된 청크 추적
+      const includedChunkIds = new Set(
+        sourceDocuments
+          .filter((doc) => typeof doc.chunkIndex === "number")
+          .map((doc) => doc.docId + "-" + doc.chunkIndex)
+      );
+
+      const adjacentContextTexts = [];
+      const adjacentSourceDocs = [];
+
+      for (const doc of sourceDocuments) {
+        if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+        const adjacent = await this.getAdjacentChunks({
+          client,
+          namespace,
+          docId: doc.docId,
+          chunkIndex: doc.chunkIndex,
+          adjacentCount: adjacentChunks,
+          excludeIds: Array.from(includedChunkIds),
+        });
+
+        for (let i = 0; i < adjacent.contextTexts.length; i++) {
+          const adjDoc = adjacent.sourceDocuments[i];
+          const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+          // 중복 방지
+          if (!includedChunkIds.has(chunkId)) {
+            includedChunkIds.add(chunkId);
+            adjacentContextTexts.push(adjacent.contextTexts[i]);
+            adjacentSourceDocs.push(adjDoc);
+          }
+        }
+      }
+
+      // 인접 청크를 결과에 추가
+      contextTexts = [...contextTexts, ...adjacentContextTexts];
+      sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+    }
+
     const sources = sourceDocuments.map((metadata, i) => {
       return { metadata: { ...metadata, text: contextTexts[i] } };
     });

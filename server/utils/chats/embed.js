@@ -94,6 +94,7 @@ async function streamChatWithForEmbed(
           topN: embed.workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
           rerank: embed.workspace?.vectorSearchMode === "rerank",
+          adjacentChunks: embed.workspace?.adjacentChunks ?? 0,
         })
       : {
           contextTexts: [],
