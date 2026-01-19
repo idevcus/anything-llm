@@ -25,3 +25,8 @@ dist-ssr
 bundleinspector.html
 .env.production
 flow-typed
+
+# Playwright
+playwright-report/
+test-results/
+package-lock.json
