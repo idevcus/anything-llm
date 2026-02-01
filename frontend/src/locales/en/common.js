@@ -628,6 +628,13 @@ const TRANSLATIONS = {
       "Sometimes, you may want to change the default way that new documents are split and chunked before being inserted into your vector database.",
     "desc-end":
       "You should only modify this setting if you understand how text splitting works and it's side effects.",
+    mode: {
+      title: "Chunking Mode",
+      description:
+        "Choose how documents are split. Character mode splits by fixed length. Paragraph mode respects semantic boundaries (paragraphs and lines).",
+      character: "Character-based (Fixed Length)",
+      paragraph: "Paragraph-based (Semantic Boundaries)",
+    },
     size: {
       title: "Text Chunk Size",
       description:

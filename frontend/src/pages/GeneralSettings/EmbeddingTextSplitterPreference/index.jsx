@@ -21,6 +21,7 @@ export default function EmbeddingTextSplitterPreference() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [chunkMode, setChunkMode] = useState("character");
   const { isOpen, openModal, closeModal } = useModal();
   const { t } = useTranslation();
 
@@ -49,6 +50,7 @@ export default function EmbeddingTextSplitterPreference() {
         document.getElementById("text-splitter-chunking-form")
       );
       await Admin.updateSystemPreferences({
+        text_splitter_chunk_mode: form.get("text_splitter_chunk_mode"),
         text_splitter_chunk_size: isNullOrNaN(
           form.get("text_splitter_chunk_size")
         )
@@ -74,6 +76,7 @@ export default function EmbeddingTextSplitterPreference() {
     async function fetchSettings() {
       const _settings = (await Admin.systemPreferences())?.settings;
       setSettings(_settings ?? {});
+      setChunkMode(_settings?.text_splitter_chunk_mode || "character");
       setLoading(false);
     }
     fetchSettings();
@@ -120,6 +123,28 @@ export default function EmbeddingTextSplitterPreference() {
                     {saving ? t("common.saving") : t("common.save")}
                   </CTAButton>
                 )}
+              </div>
+
+              <div className="flex flex-col gap-y-4 mt-8">
+                <div className="flex flex-col max-w-[300px]">
+                  <div className="flex flex-col gap-y-2 mb-4">
+                    <label className="text-white text-sm font-semibold block">
+                      {t("text.mode.title")}
+                    </label>
+                    <p className="text-xs text-white/60">
+                      {t("text.mode.description")}
+                    </p>
+                  </div>
+                  <select
+                    name="text_splitter_chunk_mode"
+                    className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
+                    value={chunkMode}
+                    onChange={(e) => setChunkMode(e.target.value)}
+                  >
+                    <option value="character">{t("text.mode.character")}</option>
+                    <option value="paragraph">{t("text.mode.paragraph")}</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex flex-col gap-y-4 mt-8">
