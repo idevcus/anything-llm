@@ -5,6 +5,14 @@ const { PrismaClient } = require('@prisma/client');
 process.env.NODE_ENV = 'development';
 process.env.STORAGE_DIR = path.join(__dirname, 'storage');
 
+// Define __dirname and __filename for ESM compatibility in Jest
+if (typeof __dirname === 'undefined') {
+  global.__dirname = __dirname || path.resolve();
+}
+if (typeof __filename === 'undefined') {
+  global.__filename = __filename || path.join(__dirname, 'jest.setup.js');
+}
+
 // Mock console.error to avoid cluttering test output from expected error logs
 const originalError = console.error;
 beforeEach(() => {

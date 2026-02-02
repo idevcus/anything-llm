@@ -227,13 +227,20 @@ const LanceDb = {
     try {
       const table = await client.openTable(namespace);
 
-      // LanceDB SQL-like filter expression
-      // docId = 'xxx' AND chunkIndex >= 0 AND chunkIndex <= 5 AND chunkIndex != 2
-      const filterExpression = `docId = '${docId}' AND chunkIndex >= ${minIndex} AND chunkIndex <= ${maxIndex} AND chunkIndex != ${chunkIndex}`;
+      // LanceDB 0.15.0: query()로 전체 데이터를 가져온 후 자바스크립트로 필터링
+      // 인접 청크 수는 최대 (adjacentCount * 2) 개이므로 그보다 조금 더 많이 가져옴
+      const allChunks = await table.query().limit(adjacentCount * 2 + 10).toArray();
 
-      const response = await table.filter(filterExpression).execute();
+      // 필터링: docId, chunkIndex 범위에 맞는 청크 선택
+      const filtered = allChunks.filter(item => {
+        if (item.docId !== docId) return false;
+        if (typeof item.chunkIndex !== "number") return false;
+        if (item.chunkIndex < minIndex || item.chunkIndex > maxIndex) return false;
+        if (item.chunkIndex === chunkIndex) return false;
+        return true;
+      });
 
-      for (const item of response) {
+      for (const item of filtered) {
         const chunkId = item.docId + "-" + item.chunkIndex;
         // 이미 포함된 청크는 스킵
         if (excludeIds.includes(chunkId)) continue;
