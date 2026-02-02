@@ -160,8 +160,8 @@ class TextSplitter {
     // 청킹 모드에 따른 separators 결정
     let separators = null;
     if (chunkMode === "paragraph") {
-      // 단락/줄바꿈 경계에서만 분할 (공백 분할 제외)
-      separators = ["\n\n", "\n"];
+      // 단락/줄바꿈 경계를 우선하되, chunkSize 초과 시 공백/문자 단위로 fallback
+      separators = ["\n\n", "\n", " ", ""];
     }
     // character 모드는 기본 separators 사용 (null)
 

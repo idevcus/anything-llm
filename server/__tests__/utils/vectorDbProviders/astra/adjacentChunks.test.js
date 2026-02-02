@@ -273,7 +273,7 @@ describe("AstraDB.adjacentChunks", () => {
 
       expect(AstraDB.similarityResponse).toHaveBeenCalledWith({
         client: mockClient,
-        namespace: "ns_test-namespace",
+        namespace: "ns_test_namespace",
         queryVector: [1, 2, 3],
         similarityThreshold: 0.25,
         topN: 2,
@@ -344,7 +344,7 @@ describe("AstraDB.adjacentChunks", () => {
       // getAdjacentChunks가 호출되었는지 확인
       expect(AstraDB.getAdjacentChunks).toHaveBeenCalledWith({
         client: mockClient,
-        namespace: "ns_test-namespace",
+        namespace: "ns_test_namespace",
         docId: "doc-123",
         chunkIndex: 2,
         adjacentCount: 1,

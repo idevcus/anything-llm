@@ -6,11 +6,14 @@ process.env.NODE_ENV = 'development';
 process.env.STORAGE_DIR = path.join(__dirname, 'storage');
 
 // Define __dirname and __filename for ESM compatibility in Jest
-if (typeof __dirname === 'undefined') {
-  global.__dirname = __dirname || path.resolve();
+const resolvedDirname = typeof __dirname === 'undefined' ? path.resolve() : __dirname;
+const resolvedFilename =
+  typeof __filename === 'undefined' ? path.join(resolvedDirname, 'jest.setup.js') : __filename;
+if (typeof global.__dirname === 'undefined') {
+  global.__dirname = resolvedDirname;
 }
-if (typeof __filename === 'undefined') {
-  global.__filename = __filename || path.join(__dirname, 'jest.setup.js');
+if (typeof global.__filename === 'undefined') {
+  global.__filename = resolvedFilename;
 }
 
 // Mock console.error to avoid cluttering test output from expected error logs

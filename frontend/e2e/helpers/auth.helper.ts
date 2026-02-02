@@ -5,6 +5,51 @@
 import { Page, Locator } from '@playwright/test';
 import { testUsers, storageKeys, timeouts, testUrls } from '../fixtures/test-data';
 
+const loginErrorSelector =
+  'p.text-red-400, .text-red-500, [role="alert"], .error, [class*="error"]';
+
+async function waitForLoginResult(page: Page, userLabel?: string) {
+  const errorElement = page.locator(loginErrorSelector);
+  const timeout = timeouts.navigation;
+
+  try {
+    const result = await Promise.race([
+      page
+        .waitForURL((url) => !url.pathname.includes(testUrls.login), { timeout })
+        .then(() => 'navigated'),
+      errorElement
+        .first()
+        .waitFor({ state: 'visible', timeout })
+        .then(() => 'error'),
+    ]);
+
+    if (result === 'error') {
+      const errorText = await errorElement.first().textContent();
+      const detail = errorText || 'Unknown error';
+      if (userLabel) {
+        throw new Error(`Login failed for user "${userLabel}": ${detail}`);
+      }
+      throw new Error(`Login failed: ${detail}`);
+    }
+  } catch (error) {
+    const isTimeout = error instanceof Error && /Timeout/i.test(error.message);
+    if (isTimeout) {
+      const currentUrl = page.url();
+      if (currentUrl.includes(testUrls.login)) {
+        if (userLabel) {
+          throw new Error(
+            `Login failed for user "${userLabel}": Still on login page after form submission`
+          );
+        }
+        throw new Error('Login failed: Still on login page after form submission');
+      }
+    }
+    throw error;
+  }
+
+  await page.waitForLoadState('domcontentloaded', { timeout: timeouts.medium }).catch(() => {});
+}
+
 /**
  * 단일 사용자 모드로 로그인
  * @param page Playwright Page 객체
@@ -29,23 +74,7 @@ export async function loginSingleUser(page: Page, password?: string) {
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.click();
 
-  // 로그인 요청 후 응답 대기 - 네비게이션 또는 에러 메시지가 나타날 때까지 대기
-  await page.waitForTimeout(2000);
-
-  // 여전히 로그인 페이지에 있는지 확인 (로그인 실패 시)
-  if (page.url().includes('/login')) {
-    // 에러 메시지가 있는지 확인
-    const errorElement = page.locator('p.text-red-400, .text-red-500, [role="alert"]');
-    const hasError = await errorElement.count().then((c) => c > 0);
-    if (hasError) {
-      const errorText = await errorElement.first().textContent();
-      throw new Error(`Login failed: ${errorText || 'Unknown error'}`);
-    }
-    throw new Error('Login failed: Still on login page after form submission');
-  }
-
-  // 페이지가 로드될 때까지 추가 대기
-  await page.waitForLoadState('domcontentloaded', { timeout: timeouts.medium }).catch(() => {});
+  await waitForLoginResult(page);
 }
 
 /**
@@ -84,23 +113,7 @@ export async function loginMultiUser(
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.click();
 
-  // 로그인 요청 후 응답 대기
-  await page.waitForTimeout(3000);
-
-  // 여전히 로그인 페이지에 있는지 확인 (로그인 실패 시)
-  if (page.url().includes('/login')) {
-    // 에러 메시지가 있는지 확인
-    const errorElement = page.locator('p.text-red-400, .text-red-500, [role="alert"], .error, [class*="error"]');
-    const hasError = await errorElement.count().then((c) => c > 0);
-    if (hasError) {
-      const errorText = await errorElement.first().textContent();
-      throw new Error(`Login failed for user "${user}": ${errorText || 'Unknown error'}`);
-    }
-    throw new Error(`Login failed for user "${user}": Still on login page after form submission`);
-  }
-
-  // 페이지가 로드될 때까지 추가 대기
-  await page.waitForLoadState('domcontentloaded', { timeout: timeouts.medium }).catch(() => {});
+  await waitForLoginResult(page, user);
 }
 
 /**

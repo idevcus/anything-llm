@@ -81,7 +81,7 @@ describe("TextSplitter", () => {
       expect(allText).toContain("세 번째");
     });
 
-    test("paragraph 모드에서 줄바꿈이 없는 긴 텍스트는 하나의 청크로 유지될 수 있음", async () => {
+    test("paragraph 모드에서 줄바꿈이 없는 긴 텍스트는 chunkSize 기준으로 분할됨", async () => {
       // 줄바꿈이 전혀 없는 긴 텍스트
       const longText = "이것은 줄바꿈이 없는 매우 긴 텍스트입니다. ".repeat(50);
       const textSplitter = new TextSplitter({
@@ -90,9 +90,11 @@ describe("TextSplitter", () => {
         chunkOverlap: 0,
       });
       const chunks = await textSplitter.splitText(longText);
-      // paragraph 모드에서는 줄바꿈 경계로만 분할하므로
-      // 줄바꿈이 없으면 분할이 적을 수 있음
-      expect(chunks.length).toBeGreaterThanOrEqual(1);
+      // 줄바꿈이 없어도 chunkSize를 초과하지 않도록 fallback 분할됨
+      expect(chunks.length).toBeGreaterThan(1);
+      chunks.forEach((chunk) => {
+        expect(chunk.length).toBeLessThanOrEqual(120);
+      });
     });
 
     test("paragraph 모드에서 빈 줄바꿈만 있는 텍스트 처리", async () => {

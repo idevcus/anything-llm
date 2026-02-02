@@ -2,7 +2,12 @@ const { WorkspaceLlmMessageLogs } = require("../../models/workspaceLlmMessageLog
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const prisma = require("../../utils/prisma");
 
-describe("WorkspaceLlmMessageLogs Integration Tests (SQLite)", () => {
+const hasPostgres =
+  typeof process.env.DATABASE_URL === "string" &&
+  /^(postgresql|postgres):\/\//.test(process.env.DATABASE_URL);
+const describeIf = hasPostgres ? describe : describe.skip;
+
+describeIf("WorkspaceLlmMessageLogs Integration Tests (SQLite)", () => {
   let testWorkspace;
   let testUser;
   let testChat;

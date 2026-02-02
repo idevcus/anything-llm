@@ -227,18 +227,28 @@ const LanceDb = {
     try {
       const table = await client.openTable(namespace);
 
-      // LanceDB 0.15.0: query()로 전체 데이터를 가져온 후 자바스크립트로 필터링
-      // 인접 청크 수는 최대 (adjacentCount * 2) 개이므로 그보다 조금 더 많이 가져옴
-      const allChunks = await table.query().limit(adjacentCount * 2 + 10).toArray();
+      // LanceDB 0.15.0: query() + where()로 필터링 (filter()는 deprecated)
+      // "docId" = 'xxx' AND "chunkIndex" >= 0 AND "chunkIndex" <= 5 AND "chunkIndex" != 2
+      const safeDocId = String(docId).replace(/'/g, "''");
+      const filterExpression = `"docId" = '${safeDocId}' AND "chunkIndex" >= ${minIndex} AND "chunkIndex" <= ${maxIndex} AND "chunkIndex" != ${chunkIndex}`;
+      let filtered = await table
+        .query()
+        .where(filterExpression)
+        .limit(adjacentCount * 2 + 2)
+        .toArray();
 
-      // 필터링: docId, chunkIndex 범위에 맞는 청크 선택
-      const filtered = allChunks.filter(item => {
-        if (item.docId !== docId) return false;
-        if (typeof item.chunkIndex !== "number") return false;
-        if (item.chunkIndex < minIndex || item.chunkIndex > maxIndex) return false;
-        if (item.chunkIndex === chunkIndex) return false;
-        return true;
-      });
+      if (filtered.length === 0) {
+        const allChunks = await table.query().toArray();
+        filtered = allChunks
+          .filter((item) => {
+            if (item.docId !== docId) return false;
+            if (typeof item.chunkIndex !== "number") return false;
+            if (item.chunkIndex < minIndex || item.chunkIndex > maxIndex) return false;
+            if (item.chunkIndex === chunkIndex) return false;
+            return true;
+          })
+          .slice(0, adjacentCount * 2 + 2);
+      }
 
       for (const item of filtered) {
         const chunkId = item.docId + "-" + item.chunkIndex;

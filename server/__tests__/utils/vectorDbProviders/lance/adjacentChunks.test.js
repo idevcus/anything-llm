@@ -62,8 +62,10 @@ describe("LanceDb.adjacentChunks", () => {
       ];
 
       const mockTable = {
-        filter: jest.fn().mockReturnThis(),
-        execute: jest.fn().mockResolvedValue(mockRows),
+        query: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue(mockRows),
       };
 
       const mockClient = {
@@ -79,13 +81,13 @@ describe("LanceDb.adjacentChunks", () => {
       });
 
       expect(mockClient.openTable).toHaveBeenCalledTimes(1);
-      expect(mockTable.filter).toHaveBeenCalledTimes(1);
+      expect(mockTable.where).toHaveBeenCalledTimes(1);
 
-      const filterExpression = mockTable.filter.mock.calls[0][0];
-      expect(filterExpression).toContain("docId = 'doc-123'");
-      expect(filterExpression).toContain("chunkIndex >= 0");
-      expect(filterExpression).toContain("chunkIndex <= 2");
-      expect(filterExpression).toContain("chunkIndex != 1");
+      const filterExpression = mockTable.where.mock.calls[0][0];
+      expect(filterExpression).toContain("\"docId\" = 'doc-123'");
+      expect(filterExpression).toContain("\"chunkIndex\" >= 0");
+      expect(filterExpression).toContain("\"chunkIndex\" <= 2");
+      expect(filterExpression).toContain("\"chunkIndex\" != 1");
 
       expect(result.contextTexts).toEqual(["First chunk", "Third chunk"]);
       expect(result.sourceDocuments).toHaveLength(2);
@@ -111,8 +113,10 @@ describe("LanceDb.adjacentChunks", () => {
       ];
 
       const mockTable = {
-        filter: jest.fn().mockReturnThis(),
-        execute: jest.fn().mockResolvedValue(mockRows),
+        query: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue(mockRows),
       };
 
       const mockClient = {
@@ -135,8 +139,10 @@ describe("LanceDb.adjacentChunks", () => {
 
     it("chunkIndex=0일 때 음수 인덱스는 조회하지 않아야 함", async () => {
       const mockTable = {
-        filter: jest.fn().mockReturnThis(),
-        execute: jest.fn().mockResolvedValue([]),
+        query: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([]),
       };
 
       const mockClient = {
@@ -151,15 +157,17 @@ describe("LanceDb.adjacentChunks", () => {
         adjacentCount: 1,
       });
 
-      const filterExpression = mockTable.filter.mock.calls[0][0];
-      expect(filterExpression).toContain("chunkIndex >= 0");
-      expect(filterExpression).toContain("chunkIndex <= 1");
+      const filterExpression = mockTable.where.mock.calls[0][0];
+      expect(filterExpression).toContain("\"chunkIndex\" >= 0");
+      expect(filterExpression).toContain("\"chunkIndex\" <= 1");
     });
 
     it("DB 쿼리 에러가 발생해도 빈 결과를 반환해야 함", async () => {
       const mockTable = {
-        filter: jest.fn().mockReturnThis(),
-        execute: jest.fn().mockRejectedValue(new Error("DB Error")),
+        query: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockRejectedValue(new Error("DB Error")),
       };
 
       const mockClient = {
