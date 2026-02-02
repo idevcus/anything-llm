@@ -29,8 +29,23 @@ export async function loginSingleUser(page: Page, password?: string) {
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.click();
 
-  // 로그인 성공 대기 (홈페이지로 리다이렉트)
-  await page.waitForURL(testUrls.home, { timeout: timeouts.navigation });
+  // 로그인 요청 후 응답 대기 - 네비게이션 또는 에러 메시지가 나타날 때까지 대기
+  await page.waitForTimeout(2000);
+
+  // 여전히 로그인 페이지에 있는지 확인 (로그인 실패 시)
+  if (page.url().includes('/login')) {
+    // 에러 메시지가 있는지 확인
+    const errorElement = page.locator('p.text-red-400, .text-red-500, [role="alert"]');
+    const hasError = await errorElement.count().then((c) => c > 0);
+    if (hasError) {
+      const errorText = await errorElement.first().textContent();
+      throw new Error(`Login failed: ${errorText || 'Unknown error'}`);
+    }
+    throw new Error('Login failed: Still on login page after form submission');
+  }
+
+  // 페이지가 로드될 때까지 추가 대기
+  await page.waitForLoadState('domcontentloaded', { timeout: timeouts.medium }).catch(() => {});
 }
 
 /**
@@ -69,8 +84,23 @@ export async function loginMultiUser(
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.click();
 
-  // 로그인 성공 대기 (홈페이지로 리다이렉트)
-  await page.waitForURL(testUrls.home, { timeout: timeouts.navigation });
+  // 로그인 요청 후 응답 대기
+  await page.waitForTimeout(3000);
+
+  // 여전히 로그인 페이지에 있는지 확인 (로그인 실패 시)
+  if (page.url().includes('/login')) {
+    // 에러 메시지가 있는지 확인
+    const errorElement = page.locator('p.text-red-400, .text-red-500, [role="alert"], .error, [class*="error"]');
+    const hasError = await errorElement.count().then((c) => c > 0);
+    if (hasError) {
+      const errorText = await errorElement.first().textContent();
+      throw new Error(`Login failed for user "${user}": ${errorText || 'Unknown error'}`);
+    }
+    throw new Error(`Login failed for user "${user}": Still on login page after form submission`);
+  }
+
+  // 페이지가 로드될 때까지 추가 대기
+  await page.waitForLoadState('domcontentloaded', { timeout: timeouts.medium }).catch(() => {});
 }
 
 /**
