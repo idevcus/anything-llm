@@ -427,25 +427,46 @@ const PGVector = {
     await this.createTableIfNotExists(connection, dimensions);
     this.log(`Updating or creating collection ${namespace}`);
 
+    const BATCH_SIZE = 500; // Process 500 vectors at a time to avoid string length limits
+    const batches = [];
+
+    // Split submissions into smaller batches
+    for (let i = 0; i < submissions.length; i += BATCH_SIZE) {
+      batches.push(submissions.slice(i, i + BATCH_SIZE));
+    }
+
+    this.log(`Processing ${submissions.length} vectors in ${batches.length} batches`);
+
     try {
-      // Create a transaction of all inserts
+      // Start a single transaction for all batches to ensure atomicity
       await connection.query(`BEGIN`);
-      for (const submission of submissions) {
-        const embedding = `[${submission.vector.map(Number).join(",")}]`; // stringify the vector for pgvector
-        const sanitizedMetadata = this.sanitizeForJsonb(submission.metadata);
-        await connection.query(
-          `INSERT INTO "${PGVector.tableName()}" (id, namespace, embedding, metadata) VALUES ($1, $2, $3, $4)`,
-          [submission.id, namespace, embedding, sanitizedMetadata]
-        );
+
+      let processedCount = 0;
+      for (const [batchIndex, batch] of batches.entries()) {
+        // Process each batch within the same transaction
+        for (const submission of batch) {
+          const embedding = `[${submission.vector.map(Number).join(",")}]`; // stringify the vector for pgvector
+          const sanitizedMetadata = this.sanitizeForJsonb(submission.metadata);
+          await connection.query(
+            `INSERT INTO "${PGVector.tableName()}" (id, namespace, embedding, metadata) VALUES ($1, $2, $3, $4)`,
+            [submission.id, namespace, embedding, sanitizedMetadata]
+          );
+        }
+        processedCount += batch.length;
+        this.log(`Processed batch ${batchIndex + 1}/${batches.length} (${processedCount}/${submissions.length} vectors)`);
       }
-      this.log(`Committing ${submissions.length} vectors to ${namespace}`);
+
+      // Commit all batches at once - ensures atomicity (all or nothing)
       await connection.query(`COMMIT`);
+      this.log(`Successfully committed all ${submissions.length} vectors to ${namespace}`);
     } catch (err) {
+      // If any batch fails, rollback the entire transaction
       this.log(
-        `Rolling back ${submissions.length} vectors to ${namespace}`,
+        `Error inserting vectors - rolling back all ${submissions.length} vectors`,
         err
       );
       await connection.query(`ROLLBACK`);
+      throw err;
     }
     return true;
   },
@@ -579,6 +600,10 @@ const PGVector = {
       const { SystemSettings } = require("../../../models/systemSettings");
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
+        chunkMode: await SystemSettings.getValueOrFallback(
+          { label: "text_splitter_chunk_mode" },
+          "character"
+        ),
         chunkSize: TextSplitter.determineMaxChunkSize(
           await SystemSettings.getValueOrFallback({
             label: "text_splitter_chunk_size",
@@ -602,12 +627,18 @@ const PGVector = {
       let vectorDimensions;
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           if (!vectorDimensions) vectorDimensions = vector.length;
           const vectorRecord = {
             id: uuidv4(),
             values: vector,
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           vectors.push(vectorRecord);
@@ -700,6 +731,74 @@ const PGVector = {
     }
   },
 
+  /**
+   * Get adjacent chunks for a given document and chunk index.
+   * @param {Object} params
+   * @param {pgsql.Client} params.client
+   * @param {string} params.namespace
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    client,
+    namespace,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      const query = `
+        SELECT metadata
+        FROM "${PGVector.tableName()}"
+        WHERE namespace = $1
+          AND metadata->>'docId' = $2
+          AND (metadata->>'chunkIndex')::int >= $3
+          AND (metadata->>'chunkIndex')::int <= $4
+          AND (metadata->>'chunkIndex')::int != $5
+        ORDER BY (metadata->>'chunkIndex')::int ASC
+      `;
+      const response = await client.query(query, [
+        namespace,
+        docId,
+        minIndex,
+        maxIndex,
+        chunkIndex,
+      ]);
+
+      for (const row of response.rows) {
+        const metadata = row.metadata;
+        // 이미 결과에 포함된 청크는 스킵
+        if (excludeIds.includes(metadata.docId + "-" + metadata.chunkIndex))
+          continue;
+
+        result.contextTexts.push(metadata.text);
+        result.sourceDocuments.push({
+          ...metadata,
+          isAdjacentChunk: true,
+        });
+      }
+    } catch (err) {
+      this.log(`Error fetching adjacent chunks: ${err.message}`);
+    }
+
+    return result;
+  },
+
   performSimilaritySearch: async function ({
     namespace = null,
     input = "",
@@ -707,6 +806,7 @@ const PGVector = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     let connection = null;
     if (!namespace || !input || !LLMConnector)
@@ -736,7 +836,50 @@ const PGVector = {
         filterIdentifiers,
       });
 
-      const { contextTexts, sourceDocuments } = result;
+      let { contextTexts, sourceDocuments } = result;
+
+      // 인접 청크 조회가 활성화된 경우
+      if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+        // 이미 포함된 청크 추적
+        const includedChunkIds = new Set(
+          sourceDocuments
+            .filter((doc) => typeof doc.chunkIndex === "number")
+            .map((doc) => doc.docId + "-" + doc.chunkIndex)
+        );
+
+        const adjacentContextTexts = [];
+        const adjacentSourceDocs = [];
+
+        for (const doc of sourceDocuments) {
+          if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+          const adjacent = await this.getAdjacentChunks({
+            client: connection,
+            namespace,
+            docId: doc.docId,
+            chunkIndex: doc.chunkIndex,
+            adjacentCount: adjacentChunks,
+            excludeIds: Array.from(includedChunkIds),
+          });
+
+          for (let i = 0; i < adjacent.contextTexts.length; i++) {
+            const adjDoc = adjacent.sourceDocuments[i];
+            const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+            // 중복 방지
+            if (!includedChunkIds.has(chunkId)) {
+              includedChunkIds.add(chunkId);
+              adjacentContextTexts.push(adjacent.contextTexts[i]);
+              adjacentSourceDocs.push(adjDoc);
+            }
+          }
+        }
+
+        // 인접 청크를 결과에 추가
+        contextTexts = [...contextTexts, ...adjacentContextTexts];
+        sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+      }
+
       const sources = sourceDocuments.map((metadata, i) => {
         return { metadata: { ...metadata, text: contextTexts[i] } };
       });

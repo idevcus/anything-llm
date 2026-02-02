@@ -212,6 +212,10 @@ const QDrant = {
       // from vectordb.
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
+        chunkMode: await SystemSettings.getValueOrFallback(
+          { label: "text_splitter_chunk_mode" },
+          "character"
+        ),
         chunkSize: TextSplitter.determineMaxChunkSize(
           await SystemSettings.getValueOrFallback({
             label: "text_splitter_chunk_size",
@@ -238,6 +242,7 @@ const QDrant = {
       };
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           if (!vectorDimension) vectorDimension = vector.length;
           const vectorRecord = {
@@ -246,7 +251,12 @@ const QDrant = {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            payload: { ...metadata, text: textChunks[i] },
+            payload: {
+              ...metadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           submission.ids.push(vectorRecord.id);
@@ -328,6 +338,88 @@ const QDrant = {
     await DocumentVectors.deleteIds(indexes);
     return true;
   },
+
+  /**
+   * Get adjacent chunks for a given document and chunk index.
+   * Qdrant supports payload filtering for efficient queries.
+   * @param {Object} params
+   * @param {Object} params.client
+   * @param {string} params.namespace
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    client,
+    namespace,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      const collection = await this.getOrCreateCollection(
+        client,
+        namespace,
+        1536 // Default dimension
+      );
+      if (!collection) return result;
+
+      const response = await client.query(collection.name, {
+        filter: {
+          must: [
+            { key: "docId", match: { value: docId } },
+            {
+              range: {
+                key: "chunkIndex",
+                gte: minIndex,
+                lte: maxIndex,
+              },
+            },
+            {
+              key: "chunkIndex",
+              match: { except: [chunkIndex] },
+            },
+          ],
+        },
+        limit: 1000,
+        with_payload: true,
+        with_vector: false,
+      });
+
+      for (const point of response.points) {
+        const payload = point.payload;
+        if (!payload) continue;
+
+        const chunkId = payload.docId + "-" + payload.chunkIndex;
+        if (excludeIds.includes(chunkId)) continue;
+
+        result.contextTexts.push(payload.text);
+        result.sourceDocuments.push({
+          ...payload,
+          isAdjacentChunk: true,
+        });
+      }
+    } catch (err) {
+      console.error("Qdrant: Error fetching adjacent chunks:", err.message);
+    }
+
+    return result;
+  },
+
   performSimilaritySearch: async function ({
     namespace = null,
     input = "",
@@ -335,6 +427,7 @@ const QDrant = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -349,7 +442,7 @@ const QDrant = {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const { contextTexts, sourceDocuments } = await this.similarityResponse({
+    let { contextTexts, sourceDocuments } = await this.similarityResponse({
       client,
       namespace,
       queryVector,
@@ -357,6 +450,48 @@ const QDrant = {
       topN,
       filterIdentifiers,
     });
+
+    // 인접 청크 조회가 활성화된 경우
+    if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+      // 이미 포함된 청크 추적
+      const includedChunkIds = new Set(
+        sourceDocuments
+          .filter((doc) => typeof doc.chunkIndex === "number")
+          .map((doc) => doc.docId + "-" + doc.chunkIndex)
+      );
+
+      const adjacentContextTexts = [];
+      const adjacentSourceDocs = [];
+
+      for (const doc of sourceDocuments) {
+        if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+        const adjacent = await this.getAdjacentChunks({
+          client,
+          namespace,
+          docId: doc.docId,
+          chunkIndex: doc.chunkIndex,
+          adjacentCount: adjacentChunks,
+          excludeIds: Array.from(includedChunkIds),
+        });
+
+        for (let i = 0; i < adjacent.contextTexts.length; i++) {
+          const adjDoc = adjacent.sourceDocuments[i];
+          const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+          // 중복 방지
+          if (!includedChunkIds.has(chunkId)) {
+            includedChunkIds.add(chunkId);
+            adjacentContextTexts.push(adjacent.contextTexts[i]);
+            adjacentSourceDocs.push(adjDoc);
+          }
+        }
+      }
+
+      // 인접 청크를 결과에 추가
+      contextTexts = [...contextTexts, ...adjacentContextTexts];
+      sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+    }
 
     const sources = sourceDocuments.map((metadata, i) => {
       return { ...metadata, text: contextTexts[i] };

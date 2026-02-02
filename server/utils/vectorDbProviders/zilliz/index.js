@@ -186,6 +186,10 @@ const Zilliz = {
 
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
+        chunkMode: await SystemSettings.getValueOrFallback(
+          { label: "text_splitter_chunk_mode" },
+          "character"
+        ),
         chunkSize: TextSplitter.determineMaxChunkSize(
           await SystemSettings.getValueOrFallback({
             label: "text_splitter_chunk_size",
@@ -207,6 +211,7 @@ const Zilliz = {
       const vectorValues = await EmbedderEngine.embedChunks(textChunks);
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           if (!vectorDimension) vectorDimension = vector.length;
           const vectorRecord = {
@@ -214,7 +219,12 @@ const Zilliz = {
             values: vector,
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           vectors.push(vectorRecord);
@@ -285,6 +295,67 @@ const Zilliz = {
     await client.flushSync({ collection_names: [this.normalize(namespace)] });
     return true;
   },
+
+  /**
+   * Get adjacent chunks for a given document and chunk index.
+   * Zilliz supports expression-based filtering (similar to Milvus).
+   * @param {Object} params
+   * @param {Object} params.client
+   * @param {string} params.namespace
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    client,
+    namespace,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      // Zilliz expression-based filtering (similar to Milvus)
+      // docId == "xxx" && chunkIndex >= 0 && chunkIndex <= 5 && chunkIndex != 2
+      const expr = `docId == "${docId}" && chunkIndex >= ${minIndex} && chunkIndex <= ${maxIndex} && chunkIndex != ${chunkIndex}`;
+
+      const response = await client.query({
+        collection_name: this.normalize(namespace),
+        expr: expr,
+        output_fields: ["*"],
+      });
+
+      for (const match of response.data) {
+        const chunkId = match.docId + "-" + match.chunkIndex;
+        // 이미 포함된 청크는 스킵
+        if (excludeIds.includes(chunkId)) continue;
+
+        result.contextTexts.push(match.text);
+        result.sourceDocuments.push({
+          ...match,
+          isAdjacentChunk: true,
+        });
+      }
+    } catch (err) {
+      console.error("Zilliz: Error fetching adjacent chunks:", err.message);
+    }
+
+    return result;
+  },
+
   performSimilaritySearch: async function ({
     namespace = null,
     input = "",
@@ -292,6 +363,7 @@ const Zilliz = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -306,7 +378,7 @@ const Zilliz = {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const { contextTexts, sourceDocuments } = await this.similarityResponse({
+    let { contextTexts, sourceDocuments } = await this.similarityResponse({
       client,
       namespace,
       queryVector,
@@ -314,6 +386,48 @@ const Zilliz = {
       topN,
       filterIdentifiers,
     });
+
+    // 인접 청크 조회가 활성화된 경우
+    if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+      // 이미 포함된 청크 추적
+      const includedChunkIds = new Set(
+        sourceDocuments
+          .filter((doc) => typeof doc.chunkIndex === "number")
+          .map((doc) => doc.docId + "-" + doc.chunkIndex)
+      );
+
+      const adjacentContextTexts = [];
+      const adjacentSourceDocs = [];
+
+      for (const doc of sourceDocuments) {
+        if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+        const adjacent = await this.getAdjacentChunks({
+          client,
+          namespace,
+          docId: doc.docId,
+          chunkIndex: doc.chunkIndex,
+          adjacentCount: adjacentChunks,
+          excludeIds: Array.from(includedChunkIds),
+        });
+
+        for (let i = 0; i < adjacent.contextTexts.length; i++) {
+          const adjDoc = adjacent.sourceDocuments[i];
+          const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+          // 중복 방지
+          if (!includedChunkIds.has(chunkId)) {
+            includedChunkIds.add(chunkId);
+            adjacentContextTexts.push(adjacent.contextTexts[i]);
+            adjacentSourceDocs.push(adjDoc);
+          }
+        }
+      }
+
+      // 인접 청크를 결과에 추가
+      contextTexts = [...contextTexts, ...adjacentContextTexts];
+      sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+    }
 
     const sources = sourceDocuments.map((doc, i) => {
       return { metadata: doc, text: contextTexts[i] };
@@ -331,6 +445,7 @@ const Zilliz = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     const result = {
       contextTexts: [],

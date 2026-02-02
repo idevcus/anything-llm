@@ -149,11 +149,22 @@ class TextSplitter {
   /**
    * Sets the splitter to use a defined config passes to other subclasses.
    * @param {Object} config
+   * @param {string} [config.chunkMode = "character"] - Chunking mode: "character" or "paragraph".
    * @param {string} [config.chunkPrefix = ""] - Prefix to be added to the start of each chunk.
    * @param {number} [config.chunkSize = 1000] - The size of each chunk.
    * @param {number} [config.chunkOverlap = 20] - The overlap between chunks.
    */
   #setSplitter(config = {}) {
+    const chunkMode = config?.chunkMode || "character";
+
+    // 청킹 모드에 따른 separators 결정
+    let separators = null;
+    if (chunkMode === "paragraph") {
+      // 단락/줄바꿈 경계를 우선하되, chunkSize 초과 시 공백/문자 단위로 fallback
+      separators = ["\n\n", "\n", " ", ""];
+    }
+    // character 모드는 기본 separators 사용 (null)
+
     // if (!config?.splitByFilename) {// TODO do something when specific extension is present? }
     return new RecursiveSplitter({
       chunkSize: isNaN(config?.chunkSize) ? 1_000 : Number(config?.chunkSize),
@@ -161,6 +172,7 @@ class TextSplitter {
         ? 20
         : Number(config?.chunkOverlap),
       chunkHeader: this.stringifyHeader(),
+      separators,
     });
   }
 
@@ -171,7 +183,7 @@ class TextSplitter {
 
 // Wrapper for Langchain default RecursiveCharacterTextSplitter class.
 class RecursiveSplitter {
-  constructor({ chunkSize, chunkOverlap, chunkHeader = null }) {
+  constructor({ chunkSize, chunkOverlap, chunkHeader = null, separators = null }) {
     const {
       RecursiveCharacterTextSplitter,
     } = require("@langchain/textsplitters");
@@ -179,11 +191,13 @@ class RecursiveSplitter {
       chunkSize,
       chunkOverlap,
       chunkHeader: chunkHeader ? `${chunkHeader?.slice(0, 50)}...` : null,
+      separators: separators || "default",
     });
     this.chunkHeader = chunkHeader;
     this.engine = new RecursiveCharacterTextSplitter({
       chunkSize,
       chunkOverlap,
+      ...(separators && { separators }), // separators가 있으면 적용
     });
   }
 

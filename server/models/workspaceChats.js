@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { safeJSONStringify } = require("../utils/helpers/chat/responses");
+const { WorkspaceLlmMessageLogs } = require("./workspaceLlmMessageLogs");
 
 const WorkspaceChats = {
   new: async function ({
@@ -255,6 +256,11 @@ const WorkspaceChats = {
         res.user = user
           ? { username: user.username }
           : { username: res.api_session_id !== null ? "API" : "unknown user" };
+
+        const llmMessageLog = await WorkspaceLlmMessageLogs.getByChatId(res.id);
+        res.llmMessageLog = llmMessageLog
+          ? { compressedMessages: llmMessageLog.compressed_messages }
+          : null;
       }
 
       return results;
@@ -313,6 +319,33 @@ const WorkspaceChats = {
     } catch (error) {
       console.error(error.message);
       return { chats: null, message: error.message };
+    }
+  },
+
+  createLlmMessageLog: async function (chatId, llmData) {
+    try {
+      const { log, message } = await WorkspaceLlmMessageLogs.new({
+        chatId,
+        systemPrompt: llmData.systemPrompt,
+        userPrompt: llmData.userPrompt,
+        llmResponse: llmData.llmResponse,
+        ragContext: llmData.contextTexts,
+        chatHistory: llmData.chatHistory,
+        compressedMessages: llmData.compressedMessages,
+      });
+      if (message) {
+        console.error(
+          `[WorkspaceChats] Failed to create LLM message log for chat ${chatId}:`,
+          message
+        );
+      }
+      return { log, message };
+    } catch (error) {
+      console.error(
+        `[WorkspaceChats] Error creating LLM message log for chat ${chatId}:`,
+        error.message
+      );
+      return { log: null, message: error.message };
     }
   },
 };

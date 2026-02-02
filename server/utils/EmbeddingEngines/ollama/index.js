@@ -29,6 +29,13 @@ class OllamaEmbedder {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
+  }
+
   /**
    * Checks if the Ollama service is alive by pinging the base path.
    * @returns {Promise<boolean>} - A promise that resolves to true if the service is alive, false otherwise.
@@ -68,6 +75,8 @@ class OllamaEmbedder {
       throw new Error(
         `Ollama service could not be reached. Is Ollama running?`
       );
+
+    const totalStartTime = Date.now();
     this.log(
       `Embedding ${textChunks.length} chunks of text with ${this.model} in batches of ${this.maxConcurrentChunks}.`
     );
@@ -84,6 +93,11 @@ class OllamaEmbedder {
     for (let i = 0; i < textChunks.length; i += this.maxConcurrentChunks) {
       const batch = textChunks.slice(i, i + this.maxConcurrentChunks);
       currentBatch++;
+
+      const startTime = Date.now();
+      const estimatedTokens = batch.reduce((sum, text) => sum + Math.ceil(text.length / 2), 0);
+
+      this.logDebug(`[Batch ${currentBatch}/${totalBatches}] Calling Ollama API - ${batch.length} chunks, ~${estimatedTokens} tokens`);
 
       try {
         // Use input param instead of prompt param to support batch processing
@@ -105,15 +119,32 @@ class OllamaEmbedder {
         // but input param returns an array of embeddings (number[][]) for batch processing.
         // This is why we spread the embeddings array into the data array.
         data.push(...embeddings);
+
+        const duration = Date.now() - startTime;
         this.log(
           `Batch ${currentBatch}/${totalBatches}: Embedded ${embeddings.length} chunks. Total: ${data.length}/${textChunks.length}`
         );
+        this.logDebug(
+          `[Batch ${currentBatch}/${totalBatches}] ✓ Success - ${embeddings.length} embeddings, ${duration}ms`
+        );
       } catch (err) {
+        const duration = Date.now() - startTime;
         this.log(err.message);
+        this.logDebug(
+          `[Batch ${currentBatch}/${totalBatches}] ✗ Failed - ${err.message}, ${duration}ms`
+        );
         error = err.message;
         data = [];
         break;
       }
+    }
+
+    const totalDuration = Date.now() - totalStartTime;
+    if (data.length > 0) {
+      this.logDebug(
+        `✓ Completed all embeddings - ${data.length} vectors generated in ${(totalDuration / 1000).toFixed(2)}s ` +
+        `(avg: ${(totalDuration / totalBatches).toFixed(0)}ms per batch)`
+      );
     }
 
     if (!!error) throw new Error(`Ollama Failed to embed: ${error}`);

@@ -239,6 +239,10 @@ const Chroma = {
       // from vectordb.
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
+        chunkMode: await SystemSettings.getValueOrFallback(
+          { label: "text_splitter_chunk_mode" },
+          "character"
+        ),
         chunkSize: TextSplitter.determineMaxChunkSize(
           await SystemSettings.getValueOrFallback({
             label: "text_splitter_chunk_size",
@@ -266,6 +270,7 @@ const Chroma = {
       };
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           const vectorRecord = {
             id: uuidv4(),
@@ -273,12 +278,22 @@ const Chroma = {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           submission.ids.push(vectorRecord.id);
           submission.embeddings.push(vectorRecord.values);
-          submission.metadatas.push(metadata);
+          submission.metadatas.push({
+            ...metadata,
+            text: textChunks[i],
+            chunkIndex: i,
+            totalChunks,
+          });
           submission.documents.push(textChunks[i]);
 
           vectors.push(vectorRecord);
@@ -339,6 +354,66 @@ const Chroma = {
     await DocumentVectors.deleteIds(indexes);
     return true;
   },
+
+  /**
+   * Get adjacent chunks for a given document and chunk index.
+   * @param {Object} params
+   * @param {import("chromadb").Collection} params.collection
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    collection,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      // Chroma는 전체 컬렉션을 가져와서 필터링해야 함
+      const response = await collection.get();
+
+      for (let i = 0; i < response.ids.length; i++) {
+        const metadata = response.metadatas[i];
+        if (
+          metadata.docId === docId &&
+          typeof metadata.chunkIndex === "number" &&
+          metadata.chunkIndex >= minIndex &&
+          metadata.chunkIndex <= maxIndex &&
+          metadata.chunkIndex !== chunkIndex
+        ) {
+          const chunkId = metadata.docId + "-" + metadata.chunkIndex;
+          if (excludeIds.includes(chunkId)) continue;
+
+          result.contextTexts.push(response.documents[i] || metadata.text);
+          result.sourceDocuments.push({
+            ...metadata,
+            text: response.documents[i] || metadata.text,
+            isAdjacentChunk: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Chroma: Error fetching adjacent chunks:", err.message);
+    }
+
+    return result;
+  },
+
   performSimilaritySearch: async function ({
     namespace = null,
     input = "",
@@ -346,6 +421,7 @@ const Chroma = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -360,7 +436,7 @@ const Chroma = {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const { contextTexts, sourceDocuments, scores } =
+    let { contextTexts, sourceDocuments, scores } =
       await this.similarityResponse({
         client,
         namespace,
@@ -369,6 +445,51 @@ const Chroma = {
         topN,
         filterIdentifiers,
       });
+
+    // 인접 청크 조회가 활성화된 경우
+    if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+      const collection = await client.getCollection({
+        name: this.normalize(namespace),
+      });
+
+      // 이미 포함된 청크 추적
+      const includedChunkIds = new Set(
+        sourceDocuments
+          .filter((doc) => typeof doc.chunkIndex === "number")
+          .map((doc) => doc.docId + "-" + doc.chunkIndex)
+      );
+
+      const adjacentContextTexts = [];
+      const adjacentSourceDocs = [];
+
+      for (const doc of sourceDocuments) {
+        if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+        const adjacent = await this.getAdjacentChunks({
+          collection,
+          docId: doc.docId,
+          chunkIndex: doc.chunkIndex,
+          adjacentCount: adjacentChunks,
+          excludeIds: Array.from(includedChunkIds),
+        });
+
+        for (let i = 0; i < adjacent.contextTexts.length; i++) {
+          const adjDoc = adjacent.sourceDocuments[i];
+          const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+          // 중복 방지
+          if (!includedChunkIds.has(chunkId)) {
+            includedChunkIds.add(chunkId);
+            adjacentContextTexts.push(adjacent.contextTexts[i]);
+            adjacentSourceDocs.push(adjDoc);
+          }
+        }
+      }
+
+      // 인접 청크를 결과에 추가
+      contextTexts = [...contextTexts, ...adjacentContextTexts];
+      sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+    }
 
     const sources = sourceDocuments.map((metadata, i) => ({
       metadata: {

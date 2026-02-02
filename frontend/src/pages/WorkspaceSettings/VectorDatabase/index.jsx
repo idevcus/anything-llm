@@ -4,6 +4,7 @@ import { castToType } from "@/utils/types";
 import { useRef, useState } from "react";
 import VectorDBIdentifier from "./VectorDBIdentifier";
 import MaxContextSnippets from "./MaxContextSnippets";
+import AdjacentChunks from "./AdjacentChunks";
 import DocumentSimilarityThreshold from "./DocumentSimilarityThreshold";
 import ResetDatabase from "./ResetDatabase";
 import VectorCount from "./VectorCount";
@@ -55,6 +56,10 @@ export default function VectorDatabase({ workspace }) {
         </div>
         <VectorSearchMode workspace={workspace} setHasChanges={setHasChanges} />
         <MaxContextSnippets
+          workspace={workspace}
+          setHasChanges={setHasChanges}
+        />
+        <AdjacentChunks
           workspace={workspace}
           setHasChanges={setHasChanges}
         />

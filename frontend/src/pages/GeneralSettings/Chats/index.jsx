@@ -246,6 +246,9 @@ function ChatsContainer({
               {t("recorded.table.prompt")}
             </th>
             <th scope="col" className="px-6 py-3">
+              {t("recorded.table.llmMessages")}
+            </th>
+            <th scope="col" className="px-6 py-3">
               {t("recorded.table.response")}
             </th>
             <th scope="col" className="px-6 py-3">

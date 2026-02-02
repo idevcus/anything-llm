@@ -17,6 +17,11 @@ export default function ChatRow({ chat, onDelete }) {
     openModal: openResponseModal,
     closeModal: closeResponseModal,
   } = useModal();
+  const {
+    isOpen: isLlmMessagesOpen,
+    openModal: openLlmMessagesModal,
+    closeModal: closeLlmMessagesModal,
+  } = useModal();
 
   const handleDelete = async () => {
     if (
@@ -46,6 +51,19 @@ export default function ChatRow({ chat, onDelete }) {
           {truncate(chat.prompt, 40)}
         </td>
         <td
+          onClick={openLlmMessagesModal}
+          className="px-6 cursor-pointer transform transition-transform duration-200 hover:scale-105 hover:shadow-lg"
+        >
+          {chat.llmMessageLog?.compressedMessages
+            ? truncate(
+                JSON.stringify(
+                  safeJsonParse(chat.llmMessageLog.compressedMessages, [])
+                ),
+                40
+              )
+            : "-"}
+        </td>
+        <td
           onClick={openResponseModal}
           className="px-6 cursor-pointer transform transition-transform duration-200 hover:scale-105 hover:shadow-lg"
         >
@@ -63,6 +81,20 @@ export default function ChatRow({ chat, onDelete }) {
       </tr>
       <ModalWrapper isOpen={isPromptOpen}>
         <TextPreview text={chat.prompt} closeModal={closePromptModal} />
+      </ModalWrapper>
+      <ModalWrapper isOpen={isLlmMessagesOpen}>
+        <TextPreview
+          text={
+            chat.llmMessageLog?.compressedMessages
+              ? JSON.stringify(
+                  safeJsonParse(chat.llmMessageLog.compressedMessages, []),
+                  null,
+                  2
+                )
+              : "No LLM messages available"
+          }
+          closeModal={closeLlmMessagesModal}
+        />
       </ModalWrapper>
       <ModalWrapper isOpen={isResponseOpen}>
         <TextPreview

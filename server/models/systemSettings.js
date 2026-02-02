@@ -24,6 +24,7 @@ const SystemSettings = {
   publicFields: [
     "footer_data",
     "support_email",
+    "text_splitter_chunk_mode",
     "text_splitter_chunk_size",
     "text_splitter_chunk_overlap",
     "max_embed_chunk_size",
@@ -43,6 +44,7 @@ const SystemSettings = {
     "footer_data",
     "support_email",
 
+    "text_splitter_chunk_mode",
     "text_splitter_chunk_size",
     "text_splitter_chunk_overlap",
     "agent_search_provider",
@@ -102,6 +104,21 @@ const SystemSettings = {
           e.message
         );
         return 20;
+      }
+    },
+    text_splitter_chunk_mode: (update) => {
+      try {
+        if (!["character", "paragraph"].includes(update))
+          throw new Error("Invalid chunk mode");
+        const { purgeEntireVectorCache } = require("../utils/files");
+        purgeEntireVectorCache();
+        return String(update);
+      } catch (e) {
+        console.error(
+          `Failed validation on text_splitter_chunk_mode`,
+          e.message
+        );
+        return "character"; // 기본값
       }
     },
     agent_search_provider: (update) => {

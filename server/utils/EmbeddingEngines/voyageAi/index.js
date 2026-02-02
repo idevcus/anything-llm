@@ -7,6 +7,7 @@ class VoyageAiEmbedder {
       VoyageEmbeddings,
     } = require("@langchain/community/embeddings/voyage");
 
+    this.className = "VoyageAiEmbedder";
     this.model = process.env.EMBEDDING_MODEL_PREF || "voyage-3-lite";
     this.voyage = new VoyageEmbeddings({
       apiKey: process.env.VOYAGEAI_API_KEY,
@@ -15,6 +16,17 @@ class VoyageAiEmbedder {
       batchSize: 128,
     });
     this.embeddingMaxChunkLength = this.#getMaxEmbeddingLength();
+  }
+
+  log(text, ...args) {
+    console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+  }
+
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
   }
 
   // https://docs.voyageai.com/docs/embeddings
@@ -50,8 +62,27 @@ class VoyageAiEmbedder {
   }
 
   async embedChunks(textChunks = []) {
+    const totalStartTime = Date.now();
+    this.log(`Embedding ${textChunks.length} chunks...`);
+
     try {
+      const startTime = Date.now();
+      const estimatedTokens = textChunks.reduce((sum, text) => sum + Math.ceil(text.length / 2), 0);
+
+      this.logDebug(`Calling VoyageAI API - ${textChunks.length} chunks, ~${estimatedTokens} tokens (auto-batched in groups of 128)`);
+
       const embeddings = await this.voyage.embedDocuments(textChunks);
+
+      const duration = Date.now() - startTime;
+      const totalDuration = Date.now() - totalStartTime;
+
+      this.logDebug(
+        `✓ Success - ${embeddings.length} embeddings, ${duration}ms`
+      );
+      this.logDebug(
+        `✓ Completed all embeddings in ${(totalDuration / 1000).toFixed(2)}s`
+      );
+
       return embeddings;
     } catch (error) {
       console.error("Voyage AI Failed to embed:", error);

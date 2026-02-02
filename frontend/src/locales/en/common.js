@@ -374,6 +374,12 @@ const TRANSLATIONS = {
       error: "Workspace vector database could not be reset!",
       success: "Workspace vector database was reset!",
     },
+    adjacentChunks: {
+      title: "Adjacent Chunks",
+      description:
+        "Number of neighboring chunks (before and after) to include when a chunk is retrieved. This helps provide more context around relevant search results.",
+      recommend: "Recommended: 0 (disabled). Re-embed documents to enable this feature.",
+    },
   },
 
   // Agent Configuration
@@ -447,6 +453,7 @@ const TRANSLATIONS = {
       by: "Sent By",
       workspace: "Workspace",
       prompt: "Prompt",
+      llmMessages: "Messages Sent to LLM",
       response: "Response",
       at: "Sent At",
     },
@@ -621,6 +628,13 @@ const TRANSLATIONS = {
       "Sometimes, you may want to change the default way that new documents are split and chunked before being inserted into your vector database.",
     "desc-end":
       "You should only modify this setting if you understand how text splitting works and it's side effects.",
+    mode: {
+      title: "Chunking Mode",
+      description:
+        "Choose how documents are split. Character mode splits by fixed length. Paragraph mode respects semantic boundaries (paragraphs and lines).",
+      character: "Character-based (Fixed Length)",
+      paragraph: "Paragraph-based (Semantic Boundaries)",
+    },
     size: {
       title: "Text Chunk Size",
       description:

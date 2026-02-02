@@ -1,5 +1,3 @@
-const { toChunks } = require("../../helpers");
-
 class AzureOpenAiEmbedder {
   constructor() {
     const { AzureOpenAI } = require("openai");
@@ -33,6 +31,13 @@ class AzureOpenAiEmbedder {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
+  }
+
   async embedTextInput(textInput) {
     const result = await this.embedChunks(
       Array.isArray(textInput) ? textInput : [textInput]
@@ -43,28 +48,104 @@ class AzureOpenAiEmbedder {
   async embedChunks(textChunks = []) {
     if (!this.model) throw new Error("No Embedding Model preference defined.");
 
+    const totalStartTime = Date.now();
     this.log(`Embedding ${textChunks.length} chunks...`);
+
     // Because there is a limit on how many chunks can be sent at once to Azure OpenAI
-    // we concurrently execute each max batch of text chunks possible.
-    // Refer to constructor maxConcurrentChunks for more info.
+    // Both in terms of batch size AND token count (300k tokens per request)
+    // we batch chunks intelligently based on estimated token count.
+    // OpenAI limit: 300k tokens per request. We use a conservative estimate for safety.
+    const MAX_TOKENS_PER_REQUEST = 150_000;
+
+    // Estimate tokens per chunk (conservative estimate for non-English text: 1 token ≈ 2 characters)
+    // This accounts for Korean text, special characters, and metadata overhead
+    const estimateTokens = (text) => Math.ceil(text.length / 2);
+
+    // Create batches based on token count
+    const batches = [];
+    let currentBatch = [];
+    let currentTokenCount = 0;
+
+    for (const chunk of textChunks) {
+      const chunkTokens = estimateTokens(chunk);
+
+      // If a single chunk exceeds the limit, we still need to try it
+      // OpenAI will return a proper error for this edge case
+      if (chunkTokens > MAX_TOKENS_PER_REQUEST) {
+        // If current batch has content, save it first
+        if (currentBatch.length > 0) {
+          batches.push(currentBatch);
+          currentBatch = [];
+          currentTokenCount = 0;
+        }
+        // Put the oversized chunk in its own batch
+        batches.push([chunk]);
+        continue;
+      }
+
+      // If adding this chunk would exceed the limit, start a new batch
+      if (
+        currentTokenCount + chunkTokens > MAX_TOKENS_PER_REQUEST &&
+        currentBatch.length > 0
+      ) {
+        batches.push(currentBatch);
+        currentBatch = [chunk];
+        currentTokenCount = chunkTokens;
+      } else {
+        currentBatch.push(chunk);
+        currentTokenCount += chunkTokens;
+      }
+
+      // Also respect the maxConcurrentChunks limit as a safety measure
+      if (currentBatch.length >= this.maxConcurrentChunks) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentTokenCount = 0;
+      }
+    }
+
+    // Add remaining chunks
+    if (currentBatch.length > 0) {
+      batches.push(currentBatch);
+    }
+
+    this.log(
+      `Created ${batches.length} batches from ${textChunks.length} chunks`
+    );
+
     const embeddingRequests = [];
-    for (const chunk of toChunks(textChunks, this.maxConcurrentChunks)) {
+    for (const [batchIndex, chunk] of batches.entries()) {
       embeddingRequests.push(
         new Promise((resolve) => {
+          const startTime = Date.now();
+          const estimatedTokens = chunk.reduce((sum, text) => sum + Math.ceil(text.length / 2), 0);
+
+          this.logDebug(`[Batch ${batchIndex + 1}/${batches.length}] Calling Azure OpenAI API - ${chunk.length} chunks, ~${estimatedTokens} tokens`);
+
           this.openai.embeddings
             .create({
               model: this.model,
               input: chunk,
             })
             .then((res) => {
+              const duration = Date.now() - startTime;
+              const actualTokens = res?.usage?.total_tokens || 0;
+              this.logDebug(
+                `[Batch ${batchIndex + 1}/${batches.length}] ✓ Success - ${res?.data?.length || 0} embeddings, ` +
+                `${actualTokens} tokens used, ${duration}ms`
+              );
               resolve({ data: res.data, error: null });
             })
             .catch((e) => {
+              const duration = Date.now() - startTime;
               e.type =
                 e?.response?.data?.error?.code ||
                 e?.response?.status ||
                 "failed_to_embed";
               e.message = e?.response?.data?.error?.message || e.message;
+              this.logDebug(
+                `[Batch ${batchIndex + 1}/${batches.length}] ✗ Failed - ${e.type}: ${e.message}, ${duration}ms`
+              );
               resolve({ data: [], error: e });
             });
         })
@@ -98,10 +179,21 @@ class AzureOpenAiEmbedder {
     });
 
     if (!!error) throw new Error(`Azure OpenAI Failed to embed: ${error}`);
-    return data.length > 0 &&
+
+    const totalDuration = Date.now() - totalStartTime;
+    const embeddings = data.length > 0 &&
       data.every((embd) => embd.hasOwnProperty("embedding"))
       ? data.map((embd) => embd.embedding)
       : null;
+
+    if (embeddings) {
+      this.logDebug(
+        `✓ Completed all embeddings - ${embeddings.length} vectors generated in ${(totalDuration / 1000).toFixed(2)}s ` +
+        `(avg: ${(totalDuration / batches.length).toFixed(0)}ms per batch)`
+      );
+    }
+
+    return embeddings;
   }
 }
 

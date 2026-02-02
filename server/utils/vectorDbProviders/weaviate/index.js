@@ -252,6 +252,10 @@ const Weaviate = {
       // from vectordb.
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
+        chunkMode: await SystemSettings.getValueOrFallback(
+          { label: "text_splitter_chunk_mode" },
+          "character"
+        ),
         chunkSize: TextSplitter.determineMaxChunkSize(
           await SystemSettings.getValueOrFallback({
             label: "text_splitter_chunk_size",
@@ -278,6 +282,7 @@ const Weaviate = {
       };
 
       if (!!vectorValues && vectorValues.length > 0) {
+        const totalChunks = vectorValues.length;
         for (const [i, vector] of vectorValues.entries()) {
           const flattenedMetadata = this.flattenObjectForWeaviate(metadata);
           const vectorRecord = {
@@ -287,12 +292,22 @@ const Weaviate = {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/5485c4af50c063e257ad54f4393fa79e0aff6462/langchain/src/vectorstores/weaviate.ts#L133
-            properties: { ...flattenedMetadata, text: textChunks[i] },
+            properties: {
+              ...flattenedMetadata,
+              text: textChunks[i],
+              chunkIndex: i,
+              totalChunks,
+            },
           };
 
           submission.ids.push(vectorRecord.id);
           submission.vectors.push(vectorRecord.values);
-          submission.properties.push(metadata);
+          submission.properties.push({
+            ...flattenedMetadata,
+            text: textChunks[i],
+            chunkIndex: i,
+            totalChunks,
+          });
 
           vectors.push(vectorRecord);
           documentVectors.push({ docId, vectorId: vectorRecord.id });
@@ -361,6 +376,96 @@ const Weaviate = {
     await DocumentVectors.deleteIds(indexes);
     return true;
   },
+
+  /**
+   * Get adjacent chunks for a given document and chunk index.
+   * Weaviate supports GraphQL filtering for efficient queries.
+   * @param {Object} params
+   * @param {Object} params.client
+   * @param {string} params.namespace
+   * @param {string} params.docId - The document identifier
+   * @param {number} params.chunkIndex - The chunk index to find neighbors for
+   * @param {number} params.adjacentCount - Number of chunks before and after to fetch
+   * @param {string[]} params.excludeIds - IDs to exclude from results (already included chunks)
+   * @returns {Promise<{contextTexts: string[], sourceDocuments: Object[]}>}
+   */
+  getAdjacentChunks: async function ({
+    client,
+    namespace,
+    docId,
+    chunkIndex,
+    adjacentCount,
+    excludeIds = [],
+  }) {
+    const result = {
+      contextTexts: [],
+      sourceDocuments: [],
+    };
+
+    // chunkIndex가 없으면 (기존 임베딩) 스킵
+    if (typeof chunkIndex !== "number") return result;
+
+    const minIndex = Math.max(0, chunkIndex - adjacentCount);
+    const maxIndex = chunkIndex + adjacentCount;
+
+    try {
+      const className = this.camelCase(namespace);
+
+      // Weaviate GraphQL query for filtering
+      const query = client.graphql
+        .get()
+        .withClassName(className)
+        .withWhere({
+          operator: "And",
+          operands: [
+            {
+              path: ["docId"],
+              operator: "Equal",
+              valueText: docId,
+            },
+            {
+              operator: "And",
+              operands: [
+                {
+                  path: ["chunkIndex"],
+                  operator: "GreaterThanEqual",
+                  valueNumber: minIndex,
+                },
+                {
+                  path: ["chunkIndex"],
+                  operator: "LessThanEqual",
+                  valueNumber: maxIndex,
+                },
+              ],
+            },
+            {
+              path: ["chunkIndex"],
+              operator: "NotEqual",
+              valueNumber: chunkIndex,
+            },
+          ],
+        })
+        .withLimit(1000)
+        .do();
+
+      const results = query.data?.Get?.[className] || [];
+      for (const item of results) {
+        const chunkId = item.docId + "-" + item.chunkIndex;
+        if (excludeIds.includes(chunkId)) continue;
+
+        result.contextTexts.push(item.text);
+        result.sourceDocuments.push({
+          ...item,
+          isAdjacentChunk: true,
+        });
+      }
+    } catch (err) {
+      console.error("Weaviate: Error fetching adjacent chunks:", err.message);
+    }
+
+    return result;
+  },
+
   performSimilaritySearch: async function ({
     namespace = null,
     input = "",
@@ -368,6 +473,7 @@ const Weaviate = {
     similarityThreshold = 0.25,
     topN = 4,
     filterIdentifiers = [],
+    adjacentChunks = 0,
   }) {
     if (!namespace || !input || !LLMConnector)
       throw new Error("Invalid request to performSimilaritySearch.");
@@ -382,7 +488,7 @@ const Weaviate = {
     }
 
     const queryVector = await LLMConnector.embedTextInput(input);
-    const { contextTexts, sourceDocuments } = await this.similarityResponse({
+    let { contextTexts, sourceDocuments } = await this.similarityResponse({
       client,
       namespace,
       queryVector,
@@ -390,6 +496,48 @@ const Weaviate = {
       topN,
       filterIdentifiers,
     });
+
+    // 인접 청크 조회가 활성화된 경우
+    if (adjacentChunks > 0 && sourceDocuments.length > 0) {
+      // 이미 포함된 청크 추적
+      const includedChunkIds = new Set(
+        sourceDocuments
+          .filter((doc) => typeof doc.chunkIndex === "number")
+          .map((doc) => doc.docId + "-" + doc.chunkIndex)
+      );
+
+      const adjacentContextTexts = [];
+      const adjacentSourceDocs = [];
+
+      for (const doc of sourceDocuments) {
+        if (typeof doc.chunkIndex !== "number" || !doc.docId) continue;
+
+        const adjacent = await this.getAdjacentChunks({
+          client,
+          namespace,
+          docId: doc.docId,
+          chunkIndex: doc.chunkIndex,
+          adjacentCount: adjacentChunks,
+          excludeIds: Array.from(includedChunkIds),
+        });
+
+        for (let i = 0; i < adjacent.contextTexts.length; i++) {
+          const adjDoc = adjacent.sourceDocuments[i];
+          const chunkId = adjDoc.docId + "-" + adjDoc.chunkIndex;
+
+          // 중복 방지
+          if (!includedChunkIds.has(chunkId)) {
+            includedChunkIds.add(chunkId);
+            adjacentContextTexts.push(adjacent.contextTexts[i]);
+            adjacentSourceDocs.push(adjDoc);
+          }
+        }
+      }
+
+      // 인접 청크를 결과에 추가
+      contextTexts = [...contextTexts, ...adjacentContextTexts];
+      sourceDocuments = [...sourceDocuments, ...adjacentSourceDocs];
+    }
 
     const sources = sourceDocuments.map((metadata, i) => {
       return { ...metadata, text: contextTexts[i] };

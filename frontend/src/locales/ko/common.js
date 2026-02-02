@@ -345,6 +345,12 @@ const TRANSLATIONS = {
       error: "워크스페이스 벡터 데이터베이스를 재설정할 수 없습니다!",
       success: "워크스페이스 벡터 데이터베이스가 재설정되었습니다!",
     },
+    adjacentChunks: {
+      title: "인접 청크",
+      description:
+        "청크가 검색될 때 포함할 이웃 청크(앞뒤)의 수입니다. 관련 검색 결과 주변에 더 많은 컨텍스트를 제공하는 데 도움이 됩니다.",
+      recommend: "추천: 0 (비활성화). 이 기능을 활성화하려면 문서를 다시 임베딩하세요.",
+    },
   },
   agent: {
     "performance-warning":
@@ -413,6 +419,7 @@ const TRANSLATIONS = {
       by: "보낸 사람",
       workspace: "워크스페이스",
       prompt: "프롬프트",
+      llmMessages: "LLM에 보낸메시지",
       response: "응답",
       at: "보낸 시각",
     },
@@ -574,6 +581,13 @@ const TRANSLATIONS = {
       "새 문서를 벡터 데이터베이스에 삽입하기 전에 기본 텍스트 분할 방식을 변경할 수 있습니다.",
     "desc-end":
       "텍스트 분할 방식과 그 영향을 이해하고 있는 경우에만 이 설정을 변경해야 합니다.",
+    mode: {
+      title: "청킹 모드",
+      description:
+        "문서 분할 방식을 선택합니다. 문자 모드는 고정 길이로 분할하고, 단락 모드는 의미적 경계(단락, 줄바꿈)를 유지합니다.",
+      character: "문자 기반 (고정 길이)",
+      paragraph: "단락 기반 (의미 단위)",
+    },
     size: {
       title: "텍스트 청크 크기",
       description: "단일 벡터에 들어갈 수 있는 최대 문자 길이입니다.",

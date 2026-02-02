@@ -18,3 +18,16 @@ CLAUDE*.md
 .cursorrules
 
 .analysis
+
+# Test results
+test-results/
+**/test-results/
+
+# Test files
+frontend/e2e/documents/
+frontend/e2e/settings/
+frontend/e2e/workspace/
+frontend/test-login.cjs
+frontend/test-login.js
+server/__tests__/integration/
+server/test-login-redirect.js

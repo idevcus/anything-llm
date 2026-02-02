@@ -41,6 +41,15 @@ These commands should be run from the `server` directory, where the Prisma schem
 
 ## Notes
 
+- **Running DB-backed Jest tests (Postgres required)**:
+  - Some integration tests (e.g. `workspaceLlmMessageLogs.integration.test.js`) require a real Postgres connection.
+  - Set `DATABASE_URL` to a Postgres URL before running tests.
+  - Example:
+    - `DATABASE_URL="postgresql://user:password@localhost:5432/anythingllm_test?schema=public"`
+  - From the `server` directory:
+    - `DATABASE_URL="postgresql://user:password@localhost:5432/anythingllm_test?schema=public" npx jest __tests__/models/workspaceLlmMessageLogs.integration.test.js`
+  - If `DATABASE_URL` is not set (or not a Postgres URL), those integration tests will be skipped.
+
 - Always make sure to run scripts from the root level to avoid path issues.
 - Before running migrations, ensure that the Prisma schema is correctly defined to prevent data loss or corruption.
 - If you are adding a new feature or making changes that require a change in the database schema, create a new migration rather than editing existing migrations.

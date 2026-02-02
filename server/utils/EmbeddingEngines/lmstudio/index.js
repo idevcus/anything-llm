@@ -25,6 +25,13 @@ class LMStudioEmbedder {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
+  // Detailed logging only in development mode
+  logDebug(text, ...args) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
+    }
+  }
+
   async #isAlive() {
     return await this.lmstudio.models
       .list()
@@ -48,6 +55,7 @@ class LMStudioEmbedder {
         `LMStudio service could not be reached. Is LMStudio running?`
       );
 
+    const totalStartTime = Date.now();
     this.log(
       `Embedding ${textChunks.length} chunks of text with ${this.model}.`
     );
@@ -57,8 +65,16 @@ class LMStudioEmbedder {
     // get dropped or go unanswered >:(
     let results = [];
     let hasError = false;
+    let chunkIndex = 0;
     for (const chunk of textChunks) {
+      chunkIndex++;
       if (hasError) break; // If an error occurred don't continue and exit early.
+
+      const startTime = Date.now();
+      const estimatedTokens = Math.ceil(chunk.length / 2);
+
+      this.logDebug(`[Chunk ${chunkIndex}/${textChunks.length}] Calling LMStudio API - ~${estimatedTokens} tokens`);
+
       results.push(
         await this.lmstudio.embeddings
           .create({
@@ -73,15 +89,22 @@ class LMStudioEmbedder {
                 type: "EMPTY_ARR",
                 message: "The embedding was empty from LMStudio",
               };
-            console.log(`Embedding length: ${embedding.length}`);
+            const duration = Date.now() - startTime;
+            this.logDebug(
+              `[Chunk ${chunkIndex}/${textChunks.length}] ✓ Success - embedding length: ${embedding.length}, ${duration}ms`
+            );
             return { data: embedding, error: null };
           })
           .catch((e) => {
+            const duration = Date.now() - startTime;
             e.type =
               e?.response?.data?.error?.code ||
               e?.response?.status ||
               "failed_to_embed";
             e.message = e?.response?.data?.error?.message || e.message;
+            this.logDebug(
+              `[Chunk ${chunkIndex}/${textChunks.length}] ✗ Failed - ${e.type}: ${e.message}, ${duration}ms`
+            );
             hasError = true;
             return { data: [], error: e };
           })
@@ -109,6 +132,15 @@ class LMStudioEmbedder {
     }
 
     const data = results.map((res) => res?.data || []);
+
+    const totalDuration = Date.now() - totalStartTime;
+    if (data.length > 0) {
+      this.logDebug(
+        `✓ Completed all embeddings - ${data.length} vectors generated in ${(totalDuration / 1000).toFixed(2)}s ` +
+        `(avg: ${(totalDuration / textChunks.length).toFixed(0)}ms per chunk)`
+      );
+    }
+
     return data.length > 0 ? data : null;
   }
 }

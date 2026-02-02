@@ -55,6 +55,7 @@ const Workspace = {
     "agentModel",
     "queryRefusalResponse",
     "vectorSearchMode",
+    "adjacentChunks",
   ],
 
   validations: {
@@ -128,6 +129,14 @@ const Workspace = {
       )
         return "default";
       return value;
+    },
+    adjacentChunks: (value) => {
+      if (value === null || value === undefined) return 0;
+      const chunks = parseInt(value);
+      if (isNullOrNaN(chunks)) return 0;
+      if (chunks < 0) return 0;
+      if (chunks > 5) return 5;
+      return chunks;
     },
   },
 
