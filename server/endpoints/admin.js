@@ -438,6 +438,9 @@ function adminEndpoints(app) {
           text_splitter_chunk_overlap:
             (await SystemSettings.get({ label: "text_splitter_chunk_overlap" }))
               ?.value || null,
+          text_splitter_chunk_mode:
+            (await SystemSettings.get({ label: "text_splitter_chunk_mode" }))
+              ?.value || "character",
           max_embed_chunk_size: embedder?.embeddingMaxChunkLength || 1000,
           agent_search_provider:
             (await SystemSettings.get({ label: "agent_search_provider" }))
