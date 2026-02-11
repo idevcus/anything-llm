@@ -94,7 +94,7 @@ const Workspace = {
       return n;
     },
     chatMode: (value) => {
-      if (!value || !["chat", "query"].includes(value)) return "chat";
+      if (!value || !["chat", "query", "react"].includes(value)) return "chat";
       return value;
     },
     chatProvider: (value) => {
