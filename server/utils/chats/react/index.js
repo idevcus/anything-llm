@@ -150,10 +150,12 @@ async function streamReactChat(
     // Keep pinned docs in final citations even if a search returns 0.
     allSources = [...pinnedSources];
 
+    let llmCallCount = 0;
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       if (response.writableEnded) break;
 
       // Non-streaming LLM call for intermediate steps
+      llmCallCount++;
       const { textResponse } = await LLMConnector.getChatCompletion(messages, {
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       });
@@ -361,6 +363,7 @@ async function streamReactChat(
         content:
           "You have reached the maximum number of search iterations. Based on all the information gathered so far, please provide your Final Answer now.",
       });
+      llmCallCount++;
       const { textResponse: summaryResponse } =
         await LLMConnector.getChatCompletion(messages, {
           temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
@@ -404,16 +407,31 @@ async function streamReactChat(
 
     const uniqueSources = deduplicateSources(allSources);
 
-    // Send the complete final answer as a single SSE chunk
+    // LLM 호출 횟수를 statusResponse로 전송
+    sendStatusMessage(
+      response,
+      uuid,
+      `**LLM 호출 횟수:** ${llmCallCount}회`
+    );
+
+    // 최종 답변을 토큰 단위로 분할하여 스트리밍 전송
     if (!response.writableEnded) {
-      writeResponseChunk(response, {
-        uuid,
-        sources: uniqueSources,
-        type: "textResponseChunk",
-        textResponse: finalAnswer,
-        close: true,
-        error: false,
-      });
+      // 공백 경계로 분할 (공백 자체도 토큰으로 보존)
+      const tokens = finalAnswer.split(/(\s+)/).filter(Boolean);
+      for (let i = 0; i < tokens.length; i++) {
+        if (response.writableEnded) break;
+        const isLast = i === tokens.length - 1;
+        writeResponseChunk(response, {
+          uuid,
+          sources: isLast ? uniqueSources : [],
+          type: "textResponseChunk",
+          textResponse: tokens[i],
+          close: isLast,
+          error: false,
+        });
+        // 이벤트 루프를 양보하여 각 청크가 클라이언트에 개별 전송되도록 함
+        if (!isLast) await new Promise((resolve) => setImmediate(resolve));
+      }
     }
 
     // Save to database in a separate try-catch so a DB failure does not send

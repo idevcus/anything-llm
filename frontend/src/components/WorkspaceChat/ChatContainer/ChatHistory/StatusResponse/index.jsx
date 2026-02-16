@@ -31,7 +31,7 @@ export default function StatusResponse({
 
   return (
     <div
-      className={`flex justify-center w-full transition-opacity duration-500 ${isCompleted ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+      className="flex justify-center w-full"
     >
       <div className="w-full max-w-[80%] flex flex-col">
         <div className=" w-full max-w-[800px]">
