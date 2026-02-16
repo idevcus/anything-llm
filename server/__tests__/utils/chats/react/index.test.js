@@ -4,17 +4,22 @@ const { WorkspaceChats } = require("../../../../models/workspaceChats");
 const { getVectorDbClass, getLLMProvider } = require("../../../../utils/helpers");
 const { writeResponseChunk } = require("../../../../utils/helpers/chat/responses");
 const { chatPrompt, recentChatHistory } = require("../../../../utils/chats");
+const { DocumentManager } = require("../../../../utils/DocumentManager");
 
 jest.mock("../../../../models/workspaceChats");
 jest.mock("../../../../utils/helpers");
 jest.mock("../../../../utils/helpers/chat/responses");
 jest.mock("../../../../utils/chats");
+jest.mock("../../../../utils/DocumentManager", () => ({
+  DocumentManager: jest.fn(),
+}));
 
 describe("streamReactChat", () => {
   let mockWorkspace;
   let mockResponse;
   let mockVectorDb;
   let mockLLMConnector;
+  let mockPinnedDocs;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -37,6 +42,11 @@ describe("streamReactChat", () => {
       on: jest.fn(),
       removeListener: jest.fn(),
     };
+
+    mockPinnedDocs = jest.fn().mockResolvedValue([]);
+    DocumentManager.mockImplementation(() => ({
+      pinnedDocs: mockPinnedDocs,
+    }));
 
     mockVectorDb = {
       hasNamespace: jest.fn().mockResolvedValue(true),
@@ -114,6 +124,157 @@ describe("streamReactChat", () => {
     expect(chunkTypes).toContain("statusResponse");
     expect(chunkTypes).toContain("textResponseChunk");
     expect(chunkTypes).toContain("finalizeResponseStream");
+  });
+
+  it("검색 결과가 없어도 pinned docs가 있으면 컨텍스트와 소스로 사용한다", async () => {
+    mockPinnedDocs.mockResolvedValue([
+      {
+        id: "pin-1",
+        title: "Pinned Guide",
+        published: "2026-02-16",
+        pageContent: "이 문서는 고정 문서 컨텍스트입니다.",
+      },
+    ]);
+    mockVectorDb.performSimilaritySearch.mockResolvedValue({
+      contextTexts: [],
+      sources: [],
+      message: null,
+    });
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 관련 문서를 찾자.\nAction: search_documents\nAction Input: {"query":"pinned-only query"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse:
+          "Thought: 고정 문서로 답한다.\nFinal Answer: pinned 문서 기반 답변입니다.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "pinned 테스트");
+
+    const statusMessages = writeResponseChunk.mock.calls
+      .filter(([, payload]) => payload.type === "statusResponse")
+      .map(([, payload]) => payload.textResponse);
+    expect(statusMessages.some((msg) => msg.includes("1 document(s) found"))).toBe(
+      true
+    );
+
+    const createArg = WorkspaceChats.new.mock.calls[0][0];
+    expect(createArg.response.text).toContain("pinned 문서 기반 답변");
+    expect(createArg.response.sources.length).toBeGreaterThan(0);
+  });
+
+  it("pinned docs가 있고 검색 결과도 있으면 양쪽 모두 소스로 포함하고 카운트에 합산한다", async () => {
+    mockPinnedDocs.mockResolvedValue([
+      {
+        id: "pin-1",
+        title: "Pinned Guide",
+        published: "2026-02-16",
+        pageContent: "핀된 문서의 전체 내용입니다.",
+      },
+    ]);
+    mockVectorDb.performSimilaritySearch.mockResolvedValue({
+      contextTexts: ["검색 결과 청크의 전체 텍스트"],
+      sources: [
+        {
+          id: "s1",
+          title: "Search Result",
+          published: "2026-02-16",
+          text: "검색 결과 청크의 전체 텍스트",
+          score: 0.9,
+        },
+      ],
+      message: null,
+    });
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 검색하자.\nAction: search_documents\nAction Input: {"query":"pinned and search query"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse:
+          "Thought: 충분한 정보.\nFinal Answer: pinned와 검색 결과 모두 기반한 답변.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "pinned + 검색 테스트");
+
+    const statusMessages = writeResponseChunk.mock.calls
+      .filter(([, payload]) => payload.type === "statusResponse")
+      .map(([, payload]) => payload.textResponse);
+    // 1 pinned + 1 search result = 2
+    expect(
+      statusMessages.some((msg) => msg.includes("2 document(s) found"))
+    ).toBe(true);
+
+    const createArg = WorkspaceChats.new.mock.calls[0][0];
+    expect(createArg.response.text).toContain("pinned와 검색 결과 모두 기반한 답변");
+    // allSources = pinnedSources (초기화) + filledSources.sources (검색 결과)
+    expect(createArg.response.sources.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("여러 반복에서 rawHistory가 변이되지 않아 backfill이 일관되게 동작한다", async () => {
+    // rawHistory를 직접 참조로 전달해 변이 여부를 확인
+    const rawHistoryData = [
+      {
+        response: JSON.stringify({
+          sources: [
+            { id: "h1", title: "Old Doc", text: "오래된 소스", score: 0.6 },
+          ],
+        }),
+      },
+      {
+        response: JSON.stringify({
+          sources: [
+            { id: "h2", title: "New Doc", text: "최신 소스", score: 0.9 },
+          ],
+        }),
+      },
+    ];
+    recentChatHistory.mockResolvedValue({
+      rawHistory: rawHistoryData,
+      chatHistory: [],
+    });
+
+    // topN=1: fillSourceWindow가 history에서 최대 1개 backfill
+    mockWorkspace = { ...mockWorkspace, topN: 1 };
+    mockVectorDb.performSimilaritySearch.mockResolvedValue({
+      contextTexts: [],
+      sources: [],
+      message: null,
+    });
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 첫 번째 검색.\nAction: search_documents\nAction Input: {"query":"first search"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 두 번째 검색.\nAction: search_documents\nAction Input: {"query":"second search"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse: "Thought: 충분.\nFinal Answer: 두 번의 검색 후 답변.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "mutation 방지 테스트");
+
+    // rawHistoryData 원본 배열이 변이되지 않아야 함 (oldest가 여전히 index 0)
+    expect(rawHistoryData[0].response).toContain("h1");
+    expect(rawHistoryData[1].response).toContain("h2");
+
+    // 두 반복 모두 history backfill로 1개씩 찾아야 함 (pinned 없음 → count = 0 + 1 = 1)
+    const statusMessages = writeResponseChunk.mock.calls
+      .filter(([, payload]) => payload.type === "statusResponse")
+      .map(([, payload]) => payload.textResponse);
+    const foundMessages = statusMessages.filter((msg) =>
+      msg.includes("document(s) found")
+    );
+    expect(foundMessages).toHaveLength(2);
+    expect(
+      foundMessages.every((msg) => msg.includes("1 document(s) found"))
+    ).toBe(true);
   });
 
   it("알 수 없는 action을 받으면 루프를 계속하고 최종 답변으로 마무리한다", async () => {

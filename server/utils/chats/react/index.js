@@ -1,8 +1,10 @@
 const { v4: uuidv4 } = require("uuid");
 const { WorkspaceChats } = require("../../../models/workspaceChats");
+const { DocumentManager } = require("../../DocumentManager");
 const { getVectorDbClass, getLLMProvider } = require("../../helpers");
+const { fillSourceWindow } = require("../../helpers/chat");
 const { writeResponseChunk } = require("../../helpers/chat/responses");
-const { chatPrompt, recentChatHistory } = require("../index");
+const { chatPrompt, recentChatHistory, sourceIdentifier } = require("../index");
 const { parseReactOutput } = require("./outputParser");
 
 const MAX_ITERATIONS = 5;
@@ -98,7 +100,7 @@ async function streamReactChat(
 
   const messageLimit = workspace?.openAiHistory || 20;
   // rawHistory is fetched but not used in the ReAct loop; only the formatted chatHistory is passed to the LLM.
-  const { chatHistory } = await recentChatHistory({
+  const { rawHistory, chatHistory } = await recentChatHistory({
     user,
     workspace,
     thread,
@@ -116,10 +118,38 @@ async function streamReactChat(
   ];
 
   const reactTrace = [];
+  let pinnedSources = [];
+  let pinnedContextTexts = [];
+  let pinnedDocIdentifiers = [];
   let allSources = [];
   let finalAnswer = null;
 
   try {
+    await new DocumentManager({
+      workspace,
+      maxTokens:
+        typeof LLMConnector.promptWindowLimit === "function"
+          ? LLMConnector.promptWindowLimit()
+          : null,
+    })
+      .pinnedDocs()
+      .then((docs) => {
+        docs.forEach((doc) => {
+          const { pageContent, ...metadata } = doc;
+          pinnedDocIdentifiers.push(sourceIdentifier(doc));
+          pinnedContextTexts.push(pageContent);
+          pinnedSources.push({
+            text:
+              pageContent.slice(0, 1_000) +
+              "...continued on in source document...",
+            ...metadata,
+          });
+        });
+      });
+
+    // Keep pinned docs in final citations even if a search returns 0.
+    allSources = [...pinnedSources];
+
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       if (response.writableEnded) break;
 
@@ -196,8 +226,28 @@ async function streamReactChat(
         let observation = "";
         let currentSearchSourceCount = 0;
         if (!hasVectorizedSpace || embeddingsCount === 0) {
-          observation =
-            "No documents are embedded in this workspace. No search results found.";
+          const filledSources = fillSourceWindow({
+            nDocs: workspace?.topN || 4,
+            searchResults: [],
+            history: [...rawHistory],
+            filterIdentifiers: pinnedDocIdentifiers,
+          });
+          const currentContextTexts = [
+            ...pinnedContextTexts,
+            ...filledSources.contextTexts,
+          ];
+
+          if (currentContextTexts.length === 0) {
+            observation =
+              "No documents are embedded in this workspace. No search results found.";
+          } else {
+            currentSearchSourceCount =
+              pinnedSources.length + filledSources.sources.length;
+            allSources.push(...filledSources.sources);
+            observation = currentContextTexts
+              .map((text, idx) => `[${idx + 1}] ${text}`)
+              .join("\n\n");
+          }
         } else {
           const searchResults = await VectorDb.performSimilaritySearch({
             namespace: workspace.slug,
@@ -205,6 +255,7 @@ async function streamReactChat(
             LLMConnector,
             similarityThreshold: workspace?.similarityThreshold,
             topN: workspace?.topN,
+            filterIdentifiers: pinnedDocIdentifiers,
             rerank: workspace?.vectorSearchMode === "rerank",
             adjacentChunks: workspace?.adjacentChunks ?? 0,
           });
@@ -217,16 +268,51 @@ async function streamReactChat(
             });
             observation = `Search failed: ${searchResults.message}`;
           } else if (searchResults.contextTexts.length === 0) {
-            observation =
-              "No relevant documents found for this search query.";
-          } else {
-            allSources.push(...searchResults.sources);
-            currentSearchSourceCount = searchResults.sources.length;
+            const filledSources = fillSourceWindow({
+              nDocs: workspace?.topN || 4,
+              searchResults: [],
+              history: [...rawHistory],
+              filterIdentifiers: pinnedDocIdentifiers,
+            });
+            const currentContextTexts = [
+              ...pinnedContextTexts,
+              ...filledSources.contextTexts,
+            ];
 
-            const contextParts = searchResults.contextTexts.map(
-              (text, idx) => `[${idx + 1}] ${text}`
+            if (currentContextTexts.length === 0) {
+              observation =
+                "No relevant documents found for this search query.";
+            } else {
+              currentSearchSourceCount =
+                pinnedSources.length + filledSources.sources.length;
+              allSources.push(...filledSources.sources);
+              observation = currentContextTexts
+                .map((text, idx) => `[${idx + 1}] ${text}`)
+                .join("\n\n");
+            }
+          } else {
+            const filledSources = fillSourceWindow({
+              nDocs: workspace?.topN || 4,
+              searchResults: searchResults.sources,
+              history: [...rawHistory],
+              filterIdentifiers: pinnedDocIdentifiers,
+            });
+            // Use the vector DB's contextTexts for search results (authoritative full-text),
+            // and append only the history-backfilled sources' text.
+            const backfillSources = filledSources.sources.slice(
+              searchResults.sources.length
             );
-            observation = contextParts.join("\n\n");
+            const currentContextTexts = [
+              ...pinnedContextTexts,
+              ...searchResults.contextTexts,
+              ...backfillSources.map((s) => s.text),
+            ];
+            currentSearchSourceCount =
+              pinnedSources.length + filledSources.sources.length;
+            allSources.push(...filledSources.sources);
+            observation = currentContextTexts
+              .map((text, idx) => `[${idx + 1}] ${text}`)
+              .join("\n\n");
           }
         }
 
