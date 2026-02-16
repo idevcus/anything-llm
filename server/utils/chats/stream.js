@@ -13,7 +13,7 @@ const {
   sourceIdentifier,
 } = require("./index");
 
-const VALID_CHAT_MODE = ["chat", "query"];
+const VALID_CHAT_MODE = ["chat", "query", "react"];
 
 async function streamChatWithWorkspace(
   response,
@@ -49,6 +49,20 @@ async function streamChatWithWorkspace(
     thread,
   });
   if (isAgentChat) return;
+
+  // ReAct mode delegates to a dedicated handler
+  if (chatMode === "react") {
+    const { streamReactChat } = require("./react");
+    await streamReactChat(
+      response,
+      workspace,
+      updatedMessage,
+      user,
+      thread,
+      attachments
+    );
+    return;
+  }
 
   const LLMConnector = getLLMProvider({
     provider: workspace?.chatProvider,

@@ -87,7 +87,11 @@ export default function handleChat(
     type === "textResponseChunk" ||
     type === "finalizeResponseStream"
   ) {
-    const chatIdx = _chatHistory.findIndex((chat) => chat.uuid === uuid);
+    // statusResponse 메시지는 제외: ReAct 모드에서 statusResponse와 최종 답변이 같은 uuid를
+    // 공유하므로, statusResponse를 덮어쓰지 않고 새 textResponse 항목으로 추가해야 한다.
+    const chatIdx = _chatHistory.findIndex(
+      (chat) => chat.uuid === uuid && chat.type !== "statusResponse"
+    );
     if (chatIdx !== -1) {
       const existingHistory = { ..._chatHistory[chatIdx] };
       let updatedHistory;
@@ -104,7 +108,14 @@ export default function handleChat(
           metrics,
         };
 
-        _chatHistory[chatIdx - 1] = { ..._chatHistory[chatIdx - 1], chatId }; // update prompt with chatID
+        // statusResponse가 중간에 끼어 있을 수 있으므로 chatIdx - 1 대신
+        // 역방향 탐색으로 가장 최근 user 메시지에 chatId를 설정한다.
+        for (let j = chatIdx - 1; j >= 0; j--) {
+          if (_chatHistory[j].role === "user") {
+            _chatHistory[j] = { ..._chatHistory[j], chatId };
+            break;
+          }
+        }
 
         emitAssistantMessageCompleteEvent(chatId);
         setLoadingResponse(false);

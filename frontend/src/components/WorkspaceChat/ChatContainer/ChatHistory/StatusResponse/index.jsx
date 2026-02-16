@@ -1,13 +1,28 @@
 import React, { useState } from "react";
 import { CaretDown } from "@phosphor-icons/react";
+import renderMarkdown from "@/utils/chat/markdown";
+import DOMPurify from "@/utils/chat/purify";
 
 import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
 
-export default function StatusResponse({ messages = [], isThinking = false }) {
+export default function StatusResponse({
+  messages = [],
+  isThinking = false,
+  isCompleted = false,
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const currentThought = messages[messages.length - 1];
   const previousThoughts = messages.slice(0, -1);
+
+  const renderStatusMarkdown = (content = "", { inline = false } = {}) => {
+    const sanitized = DOMPurify.sanitize(renderMarkdown(content)).replace(
+      /class="text-white"/g,
+      'class="text-theme-text-primary font-semibold"'
+    );
+    if (!inline) return sanitized;
+    return sanitized.replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
+  };
 
   function handleExpandClick() {
     if (!previousThoughts.length > 0) return;
@@ -15,7 +30,9 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
   }
 
   return (
-    <div className="flex justify-center w-full">
+    <div
+      className="flex justify-center w-full"
+    >
       <div className="w-full max-w-[80%] flex flex-col">
         <div className=" w-full max-w-[800px]">
           <div
@@ -54,20 +71,31 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
               >
                 <div className="text-theme-text-secondary font-mono leading-6">
                   {!isExpanded ? (
-                    <span className="block w-full truncate mt-[2px]">
-                      {currentThought.content}
-                    </span>
+                    <span
+                      className="markdown block w-full truncate mt-[2px]"
+                      dangerouslySetInnerHTML={{
+                        __html: renderStatusMarkdown(currentThought.content, {
+                          inline: true,
+                        }),
+                      }}
+                    />
                   ) : (
                     <>
                       {previousThoughts.map((thought, index) => (
                         <div
                           key={`cot-${thought.uuid || index}`}
-                          className="mb-2"
-                        >
-                          {thought.content}
-                        </div>
+                          className="markdown mb-2"
+                          dangerouslySetInnerHTML={{
+                            __html: renderStatusMarkdown(thought.content),
+                          }}
+                        />
                       ))}
-                      <div>{currentThought.content}</div>
+                      <div
+                        className="markdown"
+                        dangerouslySetInnerHTML={{
+                          __html: renderStatusMarkdown(currentThought.content),
+                        }}
+                      />
                     </>
                   )}
                 </div>

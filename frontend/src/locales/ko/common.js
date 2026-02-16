@@ -278,6 +278,12 @@ const TRANSLATIONS = {
         only: "때만",
         "desc-end": "답변을 제공합니다.",
       },
+      react: {
+        title: "ReAct",
+        "desc-start": "단계별로 추론하며",
+        search: "반복적으로 문서를 검색",
+        "desc-end": "하여 근거 있는 답변을 제공합니다.",
+      },
     },
     history: {
       title: "채팅 기록",

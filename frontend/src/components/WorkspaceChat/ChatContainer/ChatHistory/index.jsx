@@ -169,11 +169,13 @@ export default function ChatHistory({
   const renderStatusResponse = useCallback(
     (item, index) => {
       const hasSubsequentMessages = index < compiledHistory.length - 1;
+      const isCompleted = item[0]?._completed === true;
       return (
         <StatusResponse
           key={`status-group-${index}`}
           messages={item}
           isThinking={!hasSubsequentMessages && lastMessageInfo.isAnimating}
+          isCompleted={isCompleted}
         />
       );
     },
@@ -293,6 +295,27 @@ function WorkspaceChatSuggestions({ suggestions = [], sendSuggestion }) {
  * @param {Function} param0.getMessageAlignment - The function to get the alignment of the message (returns class).
  * @returns {Array} The compiled history of messages.
  */
+/**
+ * Returns a Set of assistant message uuids that have a completed final answer in history.
+ * Used to determine which statusResponse groups should be faded out.
+ * Exported for testing.
+ * @param {Object[]} history
+ * @returns {Set<string>}
+ */
+export function getCompletedUuids(history) {
+  return new Set(
+    history
+      .filter(
+        (m) =>
+          m?.uuid &&
+          m?.role === "assistant" &&
+          m?.type !== "statusResponse" &&
+          !!m?.content
+      )
+      .map((m) => m.uuid)
+  );
+}
+
 function buildMessages({
   history,
   workspace,
@@ -301,15 +324,22 @@ function buildMessages({
   forkThread,
   getMessageAlignment,
 }) {
+  // O(n) pre-computation: uuids that have a completed assistant response.
+  const completedUuids = getCompletedUuids(history);
+
   return history.reduce((acc, props, index) => {
     const isLastBotReply =
       index === history.length - 1 && props.role === "assistant";
 
     if (props?.type === "statusResponse" && !!props.content) {
+      // Mark as completed instead of skipping so StatusResponse can fade out gracefully.
+      const isCompleted = !!props.uuid && completedUuids.has(props.uuid);
+      const itemProps = isCompleted ? { ...props, _completed: true } : props;
+
       if (acc.length > 0 && Array.isArray(acc[acc.length - 1])) {
-        acc[acc.length - 1].push(props);
+        acc[acc.length - 1].push(itemProps);
       } else {
-        acc.push([props]);
+        acc.push([itemProps]);
       }
       return acc;
     }

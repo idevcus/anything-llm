@@ -78,8 +78,8 @@ async function messageArrayCompressor(llm, messages = [], rawHistory = []) {
     if (systemAndUserTokens > llm.promptWindowLimit() * 0.9) {
       console.warn(
         `[COMPRESS_ONLY_HISTORY] Warning: System + User prompt (${systemAndUserTokens} tokens) ` +
-        `exceeds 90% of model window (${llm.promptWindowLimit()} tokens). ` +
-        `History compression may not be sufficient.`
+          `exceeds 90% of model window (${llm.promptWindowLimit()} tokens). ` +
+          `History compression may not be sufficient.`
       );
     }
 
@@ -142,9 +142,9 @@ async function messageArrayCompressor(llm, messages = [], rawHistory = []) {
 
     console.log(
       `[COMPRESS_ONLY_HISTORY] Compressed history only. ` +
-      `System: ${tokenManager.countFromString(system.content)} tokens, ` +
-      `History: ${tokenManager.statsFrom(compressedHistory)} tokens, ` +
-      `User: ${userPromptSize} tokens`
+        `System: ${tokenManager.countFromString(system.content)} tokens, ` +
+        `History: ${tokenManager.statsFrom(compressedHistory)} tokens, ` +
+        `User: ${userPromptSize} tokens`
     );
 
     // 시스템, 압축된 히스토리, 사용자 프롬프트 순서로 반환
@@ -498,7 +498,7 @@ function fillSourceWindow({
   // Looking at this function by itself you may think that this loop could be extreme for long history chats,
   // but this was already handled where `history` we derived. This comes from `recentChatHistory` which
   // includes a limit for history (default: 20). So this loop does not look as extreme as on first glance.
-  for (const chat of history.reverse()) {
+  for (const chat of [...history].reverse()) {
     if (sources.length >= nDocs) {
       log(
         `Citations backfilled to ${nDocs} references from ${searchResults.length} original citations.`

@@ -302,6 +302,12 @@ const TRANSLATIONS = {
         only: "only",
         "desc-end": "if document context is found.",
       },
+      react: {
+        title: "ReAct",
+        "desc-start": "will reason step-by-step and",
+        search: "iteratively search documents",
+        "desc-end": "to provide well-reasoned answers.",
+      },
     },
     history: {
       title: "Chat History",
