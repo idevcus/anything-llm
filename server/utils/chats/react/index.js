@@ -182,11 +182,7 @@ async function streamReactChat(
         finalAnswer = parsed.answer;
 
         if (parsed.thought) {
-          sendStatusMessage(
-            response,
-            uuid,
-            `**Thought:** ${parsed.thought}`
-          );
+          sendStatusMessage(response, uuid, `**Thought:** ${parsed.thought}`);
         }
         break;
       }
@@ -194,11 +190,7 @@ async function streamReactChat(
       if (parsed.type === "action") {
         // Send thought to client
         if (parsed.thought) {
-          sendStatusMessage(
-            response,
-            uuid,
-            `**Thought:** ${parsed.thought}`
-          );
+          sendStatusMessage(response, uuid, `**Thought:** ${parsed.thought}`);
         }
 
         if (parsed.action !== "search_documents") {
@@ -410,21 +402,19 @@ async function streamReactChat(
       return;
     }
 
+    const uniqueSources = deduplicateSources(allSources);
+
     // Send the complete final answer as a single SSE chunk
     if (!response.writableEnded) {
       writeResponseChunk(response, {
         uuid,
-        sources: allSources,
+        sources: uniqueSources,
         type: "textResponseChunk",
         textResponse: finalAnswer,
         close: true,
         error: false,
       });
     }
-
-    // NOTE: allSources (with duplicates) is sent to the client above.
-    // Deduplication is applied only to the database record.
-    const uniqueSources = deduplicateSources(allSources);
 
     // Save to database in a separate try-catch so a DB failure does not send
     // a second abort chunk to the client (the stream is already closed above).
@@ -472,7 +462,8 @@ async function streamReactChat(
         textResponse: null,
         sources: [],
         close: true,
-        error: "An error occurred while processing your request. Please try again.",
+        error:
+          "An error occurred while processing your request. Please try again.",
       });
     }
   }
