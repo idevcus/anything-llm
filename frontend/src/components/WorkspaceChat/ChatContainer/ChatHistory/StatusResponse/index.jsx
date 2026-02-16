@@ -6,7 +6,11 @@ import DOMPurify from "@/utils/chat/purify";
 import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
 
-export default function StatusResponse({ messages = [], isThinking = false }) {
+export default function StatusResponse({
+  messages = [],
+  isThinking = false,
+  isCompleted = false,
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const currentThought = messages[messages.length - 1];
   const previousThoughts = messages.slice(0, -1);
@@ -26,7 +30,9 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
   }
 
   return (
-    <div className="flex justify-center w-full">
+    <div
+      className={`flex justify-center w-full transition-opacity duration-500 ${isCompleted ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+    >
       <div className="w-full max-w-[80%] flex flex-col">
         <div className=" w-full max-w-[800px]">
           <div
