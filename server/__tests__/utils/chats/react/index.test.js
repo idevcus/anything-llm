@@ -175,7 +175,7 @@ describe("streamReactChat", () => {
     expect(createArg.response.reactTrace[1].searchQuery).toBe("no docs query");
   });
 
-  it("getChatCompletion에서 예외 발생 시 abort 청크를 전송한다", async () => {
+  it("getChatCompletion에서 예외 발생 시 sanitized abort 청크를 전송한다", async () => {
     mockLLMConnector.getChatCompletion
       .mockReset()
       .mockRejectedValue(new Error("LLM 서비스 오류"));
@@ -189,8 +189,99 @@ describe("streamReactChat", () => {
       ([, payload]) => payload.type === "abort"
     );
     expect(abortCall).toBeDefined();
-    expect(abortCall[1].error).toContain("LLM 서비스 오류");
+    // 내부 오류 메시지가 사용자에게 노출되지 않아야 한다
+    expect(abortCall[1].error).not.toContain("LLM 서비스 오류");
+    expect(abortCall[1].error).toContain("error occurred");
     expect(abortCall[1].close).toBe(true);
+  });
+
+  it("DB 저장 실패 시 클라이언트에는 abort 청크를 보내지 않는다", async () => {
+    WorkspaceChats.new.mockReset().mockRejectedValue(new Error("db error"));
+
+    await streamReactChat(mockResponse, mockWorkspace, "DB 실패 테스트");
+
+    // textResponseChunk는 전송되어야 한다 (응답은 이미 스트리밍됨)
+    const textChunk = writeResponseChunk.mock.calls.find(
+      ([, payload]) => payload.type === "textResponseChunk"
+    );
+    expect(textChunk).toBeDefined();
+
+    // DB 실패 이후 abort 청크를 보내면 안 된다
+    const abortCall = writeResponseChunk.mock.calls.find(
+      ([, payload]) => payload.type === "abort"
+    );
+    expect(abortCall).toBeUndefined();
+  });
+
+  it("embeddingsCount가 0이면 검색 없이 처리한다", async () => {
+    mockVectorDb.namespaceCount.mockResolvedValue(0);
+
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 검색 필요.\nAction: search_documents\nAction Input: {"query":"empty count query"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse: "Thought: 임베딩 없음.\nFinal Answer: 임베딩 없이 답변.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "임베딩 없는 질문");
+
+    expect(mockVectorDb.performSimilaritySearch).not.toHaveBeenCalled();
+
+    const createArg = WorkspaceChats.new.mock.calls[0][0];
+    expect(createArg.response.text).toContain("임베딩 없이 답변.");
+  });
+
+  it("벡터 검색이 오류 메시지를 반환하면 루프를 계속하고 최종 답변을 반환한다", async () => {
+    mockVectorDb.performSimilaritySearch.mockResolvedValue({
+      contextTexts: [],
+      sources: [],
+      message: "VectorDB connection timeout",
+    });
+
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 검색 필요.\nAction: search_documents\nAction Input: {"query":"error query"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse: "Thought: 검색 실패.\nFinal Answer: 검색 없이 답변.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "검색 오류 테스트");
+
+    const createArg = WorkspaceChats.new.mock.calls[0][0];
+    expect(createArg.response.text).toContain("검색 없이 답변.");
+    // 검색 오류 시 소스 없음
+    expect(createArg.response.sources).toHaveLength(0);
+  });
+
+  it("벡터 검색 결과가 빈 contextTexts를 반환하면 적절히 처리한다", async () => {
+    mockVectorDb.performSimilaritySearch.mockResolvedValue({
+      contextTexts: [],
+      sources: [],
+      message: null,
+    });
+
+    mockLLMConnector.getChatCompletion
+      .mockReset()
+      .mockResolvedValueOnce({
+        textResponse:
+          'Thought: 검색 필요.\nAction: search_documents\nAction Input: {"query":"no results query"}',
+      })
+      .mockResolvedValueOnce({
+        textResponse:
+          "Thought: 관련 문서 없음.\nFinal Answer: 관련 문서가 없어 일반 지식으로 답변.",
+      });
+
+    await streamReactChat(mockResponse, mockWorkspace, "빈 결과 테스트");
+
+    const createArg = WorkspaceChats.new.mock.calls[0][0];
+    expect(createArg.response.text).toContain("일반 지식으로 답변");
+    expect(createArg.response.sources).toHaveLength(0);
   });
 
   it("MAX_ITERATIONS 초과 시 요약 LLM 호출 후 최종 답변을 저장한다", async () => {

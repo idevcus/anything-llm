@@ -49,8 +49,15 @@ function parseReactOutput(text) {
     try {
       const parsed = JSON.parse(actionInput);
       actionInput = parsed.query || actionInput;
-    } catch {
-      // If not JSON, use raw text as the query
+    } catch (jsonError) {
+      // Non-JSON action input is expected when LLM skips JSON formatting.
+      // Log only if it looks like it was intended to be JSON (to catch format regressions).
+      if (actionInput.trim().startsWith("{")) {
+        console.error("[ReAct outputParser] Malformed JSON in Action Input", {
+          raw: actionInput.slice(0, 200),
+          error: jsonError.message,
+        });
+      }
     }
 
     return {
@@ -67,6 +74,7 @@ function parseReactOutput(text) {
 
 /**
  * Extracts the Thought portion from the ReAct output.
+ * @private
  * @param {string} text - Full ReAct output text
  * @returns {string} The thought text, or empty string if not found
  */
